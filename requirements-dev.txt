@@ -1,0 +1,13 @@
+# Development dependencies
+-r requirements.txt
+
+# Code quality
+ruff>=0.8.0           # Linting + formatting (replaces flake8, isort, black, pylint)
+mypy>=1.13.0          # Static type checking (like PHPStan)
+
+# Security
+bandit>=1.8.0         # Security-focused static analysis
+pip-audit>=2.7.0      # Dependency vulnerability scanning
+
+# Testing
+pytest>=8.0.0

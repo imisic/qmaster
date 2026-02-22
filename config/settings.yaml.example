@@ -1,0 +1,149 @@
+# Global Settings for Quartermaster
+# Copy this file to settings.yaml and adjust for your environment:
+#   cp config/settings.yaml.example config/settings.yaml
+
+# Backup Storage Locations
+storage:
+  # Primary local backup storage
+  local_base: ~/backups/qm
+  # Optional: secondary sync location (e.g., NAS mount, external drive, network share)
+  # Uncomment and set if you want backups synced to a second location:
+  # secondary_sync: /mnt/nas/backups/qm
+
+# Default Backup Settings
+defaults:
+  project:
+    schedule: daily
+    retention_days: 30
+    time: "02:00"
+    compress: true
+    verify: true
+  database:
+    schedule: daily
+    retention_days: 14
+    time: "03:00"
+    compress: true
+
+# Timeouts (seconds) for backup/restore operations
+timeouts:
+  mysqldump: 3600           # Database dump (1 hour)
+  mysql_restore: 7200       # Database restore (2 hours)
+  git_bundle: 1800          # Git bundle create (30 min)
+  git_clone: 1800           # Git clone/fetch (30 min)
+  git_verify: 300           # Git bundle verify (5 min)
+
+# MySQL connection defaults (used when not specified per-database)
+mysql_defaults:
+  host: localhost
+  port: 3306
+  user: root
+
+# Minimum free disk space (MB) required before starting a database backup
+min_db_backup_space_mb: 1024
+
+# Complete Backup Settings (includes .git, .claude, _debug, etc.)
+complete_backup:
+  enabled: true
+  schedule: daily
+  time: "02:30"
+  exclude_archives:
+    - "*.zip"
+    - "*.7z"
+    - "*.tar"
+    - "*.tar.gz"
+    - "*.tgz"
+    - "*.tar.bz2"
+    - "*.rar"
+    - "*.gz"
+    - "*.bz2"
+    - "*.xz"
+
+# Exclusion Patterns (applied to all projects unless overridden)
+global_exclude:
+  - "*.log"
+  - "*.tmp"
+  - ".DS_Store"
+  - "Thumbs.db"
+  - "__pycache__/"
+  - "*.pyc"
+  - ".env.local"
+  - ".env.*.local"
+  - "*.zip"
+  - "*.7z"
+  - "*.tar"
+  - "*.tar.gz"
+  - "*.tgz"
+  - "*.tar.bz2"
+  - "*.rar"
+  - "*.gz"
+  - "*.bz2"
+  - "*.xz"
+
+# System Settings
+system:
+  max_parallel_backups: 4
+  log_retention_days: 30
+  enable_notifications: true
+  auto_discover_projects: true
+  auto_discover_databases: true
+
+# Storage analysis thresholds
+storage_thresholds:
+  disk_usage_critical_percent: 80
+  dedup_savings_threshold_mb: 500
+  max_backup_count_warning: 50
+  high_duplication_ratio: 0.3
+
+# Tiered retention defaults
+retention_tiers:
+  hourly:
+    keep: 24
+    max_age_hours: 24
+  daily:
+    keep: 7
+    max_age_days: 7
+  weekly:
+    keep: 4
+    max_age_weeks: 4
+  monthly:
+    keep: 12
+    max_age_months: 12
+  yearly:
+    keep: 5
+    max_age_years: 5
+
+# Apache log settings
+apache:
+  log_user: www-data        # Apache process user (www-data on Debian/Ubuntu)
+  log_group: adm            # Log access group
+  # extra_log_paths:        # Additional log paths to search
+  #   - /var/log/nginx/error.log
+
+# Web Interface Settings
+web:
+  port: 8501
+  host: localhost
+  theme: dark
+  auto_refresh: 30  # seconds
+
+# Claude Configuration Manager Settings (optional - for Claude Code users)
+claude_config:
+  cleanup_enabled: false
+  cleanup_threshold_mb: 100
+  retention_days: 90
+  export_path: ~/backups/claude_exports
+  auto_backup: true
+
+# Scheduler Settings
+scheduler:
+  enabled: true
+  timezone: UTC
+  # Projects to receive weekly snapshot schedules (via --setup-defaults)
+  # important_projects:
+  #   - my-website
+  #   - my-app
+
+# Security
+security:
+  encrypt_passwords: true
+  backup_permissions: "600"

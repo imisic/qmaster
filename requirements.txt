@@ -1,0 +1,18 @@
+# Core dependencies
+streamlit>=1.31.0
+pyyaml>=6.0.1
+gitpython>=3.1.42
+cryptography>=42.0.2
+
+# CLI
+click>=8.1.7
+rich>=13.7.0
+
+# Data handling (used by web dashboard charts)
+pandas>=2.2.0
+plotly>=5.18.0
+python-dateutil>=2.8.2
+
+# HTML processing
+beautifulsoup4>=4.12.0
+markdownify>=0.13.0
