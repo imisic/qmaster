@@ -1,0 +1,47 @@
+# Database Configuration for Quartermaster
+# Copy this file to databases.yaml and add your own databases:
+#   cp config/databases.yaml.example config/databases.yaml
+#
+# Passwords are automatically encrypted on first load.
+# You can enter plain text passwords - they will be replaced with
+# encrypted versions (prefixed with 'enc:') automatically.
+
+databases:
+  # Example: MySQL database
+  my_app_db:
+    type: mysql
+    host: localhost
+    port: 3306
+    user: my_db_user
+    password: your_password_here
+    description: My Application Database
+    backup:
+      enabled: true
+      schedule: daily
+      retention_days: 14
+      time: "01:00"
+      compress: true
+      options:
+        - --single-transaction
+        - --routines
+        - --triggers
+
+  # Example: Another database with custom options
+  my_blog_db:
+    type: mysql
+    host: localhost
+    port: 3306
+    user: blog_user
+    password: your_password_here
+    description: Blog Database
+    backup:
+      enabled: true
+      schedule: daily
+      retention_days: 14
+      time: "01:00"
+      compress: true
+      options:
+        - --single-transaction
+        - --routines
+        - --triggers
+        - --add-drop-database
