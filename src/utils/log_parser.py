@@ -43,7 +43,7 @@ class ApacheLogParser:
         if self.config:
             configured_paths = self.config.get_setting("apache.log_paths", [])
 
-        common_paths = configured_paths if configured_paths is not None else [
+        common_paths = configured_paths if configured_paths else [
             "/var/log/apache2/error.log",
             "/var/log/httpd/error_log",
             "/usr/local/apache2/logs/error_log",
@@ -160,23 +160,32 @@ class ApacheLogParser:
             return parsed_logs
 
         except Exception as e:
+            logging.warning(f"Error reading log file {log_path}: {e!s}")
             return [
                 {
                     "timestamp": datetime.now().isoformat(),
                     "severity": "error",
-                    "message": f"Error reading log file: {e!s}",
-                    "raw": str(e),
+                    "message": "Error reading log file. Check application logs for details.",
+                    "raw": "",
                 }
             ]
 
-    _ALLOWED_LOG_DIRS = ("/var/log/", "/var/log/apache2/", "/var/log/httpd/", "/var/log/nginx/")
+    _DEFAULT_ALLOWED_LOG_DIRS = ("/var/log/", "/var/log/apache2/", "/var/log/httpd/", "/var/log/nginx/")
+
+    @property
+    def _allowed_log_dirs(self) -> tuple[str, ...]:
+        if self.config:
+            configured = self.config.get_setting("apache.allowed_log_dirs", None)
+            if configured:
+                return tuple(configured)
+        return self._DEFAULT_ALLOWED_LOG_DIRS
 
     def _fix_log_permissions(self, log_path: str) -> bool:
         """Automatically fix Apache log permissions if possible"""
         try:
             # Validate path is within expected log directories
             resolved = os.path.realpath(log_path)
-            if not any(resolved.startswith(d) for d in self._ALLOWED_LOG_DIRS):
+            if not any(resolved.startswith(d) for d in self._allowed_log_dirs):
                 logging.getLogger(__name__).warning("Refused to chmod path outside log dirs: %s", resolved)
                 return False
 
@@ -196,7 +205,7 @@ class ApacheLogParser:
 
             return os.access(log_path, os.W_OK)
         except Exception:
-            logging.getLogger(__name__).debug("Failed to fix log permissions for %s", log_path, exc_info=True)
+            logging.getLogger(__name__).warning("Failed to fix log permissions for %s", log_path, exc_info=True)
             return False
 
     def clear_log(self, log_path: str) -> tuple[bool, str]:
@@ -204,6 +213,11 @@ class ApacheLogParser:
         try:
             if not os.path.exists(log_path):
                 return False, "Log file does not exist"
+
+            # Validate path is within allowed log directories
+            resolved = os.path.realpath(log_path)
+            if not any(resolved.startswith(d) for d in self._allowed_log_dirs):
+                return False, "Refused to clear file outside allowed log directories"
 
             # First try without sudo
             if os.access(log_path, os.W_OK):
@@ -227,8 +241,8 @@ class ApacheLogParser:
                     timeout=10,
                 )
                 return True, "Log file cleared successfully (with sudo)"
-            except subprocess.CalledProcessError:
-                pass
+            except subprocess.CalledProcessError as e:
+                logging.debug(f"sudo truncate failed for {log_path}: {e}")
 
             # Try with sudo tee
             try:
@@ -236,13 +250,15 @@ class ApacheLogParser:
                     ["sudo", "-n", "tee", log_path], input="", check=True, capture_output=True, text=True, timeout=10
                 )
                 return True, "Log file cleared successfully (with sudo)"
-            except subprocess.CalledProcessError:
-                pass
+            except subprocess.CalledProcessError as e:
+                logging.debug(f"sudo tee failed for {log_path}: {e}")
 
             # Try adding user to adm group suggestion
-            import pwd
-
-            username = pwd.getpwuid(os.getuid()).pw_name
+            try:
+                import pwd
+                username = pwd.getpwuid(os.getuid()).pw_name
+            except ImportError:
+                username = os.environ.get("USER", "your_user")
 
             return False, (
                 f"Permission denied. The log file is owned by root. "
@@ -298,6 +314,8 @@ class ApacheLogParser:
         if not os.path.exists(log_path):
             return []
 
+        lines = min(lines, 10000)
+
         try:
             result = subprocess.run(
                 ["tail", "-n", str(lines), log_path], capture_output=True, text=True, check=True, timeout=30
@@ -351,7 +369,7 @@ class ApacheLogParser:
             else:
                 return False, f"Unsupported format: {output_format}"
 
-            return True, f"Logs exported to {output_file}"
+            return True, output_file
 
         except Exception as e:
             return False, f"Error exporting logs: {e!s}"

@@ -1,5 +1,6 @@
 """Color-coded status badges replacing emoji indicators."""
 
+import html
 from datetime import datetime, timedelta
 
 
@@ -11,13 +12,13 @@ def status_badge(text: str, level: str) -> str:
         level: One of 'healthy', 'success', 'warning', 'critical',
                'error', 'running', 'info', 'inactive'.
     """
-    return f'<span class="status-badge status-{level}">{text}</span>'
+    return f'<span class="status-badge status-{html.escape(level)}">{html.escape(text)}</span>'
 
 
 def type_badge(label: str, kind: str = "") -> str:
     """Return HTML for a type badge (project, database, full, incremental, etc.)."""
     css_class = f"type-{kind}" if kind else ""
-    return f'<span class="type-badge {css_class}">{label}</span>'
+    return f'<span class="type-badge {css_class}">{html.escape(label)}</span>'
 
 
 def health_level(last_backup_time: datetime | str | None) -> str:

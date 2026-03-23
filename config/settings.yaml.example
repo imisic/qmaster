@@ -116,8 +116,20 @@ retention_tiers:
 apache:
   log_user: www-data        # Apache process user (www-data on Debian/Ubuntu)
   log_group: adm            # Log access group
-  # extra_log_paths:        # Additional log paths to search
-  #   - /var/log/nginx/error.log
+  # log_paths:              # Override default Apache log discovery paths
+  #   - /var/log/apache2/error.log
+  #   - /var/log/httpd/error_log
+  # allowed_log_dirs:       # Directories allowed for log file operations
+  #   - /var/log/
+  #   - /var/log/apache2/
+  #   - /var/log/httpd/
+  #   - /var/log/nginx/
+
+# PHP log settings
+php:
+  # system_log_paths:       # Override default PHP log discovery paths
+  #   - /var/log/php*.log
+  #   - /var/log/php-fpm/*.log
 
 # Web Interface Settings
 web:

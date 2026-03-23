@@ -1,6 +1,7 @@
 """Storage analyzer for backup space management and cleanup preview"""
 
 import json
+import logging
 import os
 import shutil
 from datetime import datetime, timedelta
@@ -61,8 +62,8 @@ class StorageAnalyzer:
 
                     if file.endswith(".json"):
                         metadata_count += 1
-                except (OSError, PermissionError):
-                    pass
+                except (OSError, PermissionError) as e:
+                    logging.getLogger(__name__).debug("Cannot stat %s: %s", file_path, e)
 
         # Get disk usage for the storage path
         disk_usage = shutil.disk_usage(self.storage_path)
@@ -77,7 +78,7 @@ class StorageAnalyzer:
             "disk_total": disk_usage.total,
             "disk_used": disk_usage.used,
             "disk_free": disk_usage.free,
-            "disk_percent": (disk_usage.used / disk_usage.total) * 100,
+            "disk_percent": (disk_usage.used / disk_usage.total) * 100 if disk_usage.total > 0 else 0,
             "storage_percent": (total_size / disk_usage.total) * 100 if disk_usage.total > 0 else 0,
         }
 
@@ -146,8 +147,8 @@ class StorageAnalyzer:
                     if newest is None or mtime > newest:
                         newest = mtime
 
-                except (OSError, PermissionError):
-                    pass
+                except (OSError, PermissionError) as e:
+                    logging.getLogger(__name__).debug("Cannot stat file: %s", e)
 
         return {
             "size": total_size,
@@ -314,8 +315,8 @@ class StorageAnalyzer:
                     backup_info["tags"] = metadata.get("tags", [])
                     backup_info["importance"] = metadata.get("importance", "normal")
 
-                except (OSError, json.JSONDecodeError):
-                    pass
+                except (OSError, json.JSONDecodeError) as e:
+                    logging.getLogger(__name__).debug("Cannot read metadata for %s: %s", backup_info.get("name", "?"), e)
 
             backups.append(backup_info)
 
@@ -374,8 +375,8 @@ class StorageAnalyzer:
                             else "other"
                         )
                         backup_files.append((mtime, stat.st_size, category))
-                    except (OSError, PermissionError):
-                        pass
+                    except (OSError, PermissionError) as e:
+                        logging.getLogger(__name__).debug("Cannot stat backup file: %s", e)
 
         # Sort by mtime for efficient cumulative computation
         backup_files.sort(key=lambda x: x[0])

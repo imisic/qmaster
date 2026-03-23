@@ -78,7 +78,7 @@ class GitManager:
 
         except Exception as e:
             self.logger.error(f"Failed to get repo status for {path}: {e!s}")
-            return {"is_repo": True, "error": str(e)}
+            return {"is_repo": True, "error": "Failed to read repository status"}
 
     def create_savepoint(self, path: str, message: str | None = None) -> tuple[bool, str]:
         """Create a Git savepoint (commit all changes)"""
@@ -92,14 +92,15 @@ class GitManager:
             if not repo.is_dirty() and not repo.untracked_files:
                 return False, "No changes to commit"
 
-            # Configure Git safe directory (safe from shell injection)
+            # Configure Git safe directory scoped to this repo (safe from shell injection)
             try:
                 subprocess.run(
-                    ["git", "config", "--global", "--add", "safe.directory", str(path)],
+                    ["git", "config", "--local", "safe.directory", str(path)],
                     check=False,  # Don't raise exception if already configured
                     capture_output=True,
                     text=True,
                     timeout=30,
+                    cwd=str(path),
                 )
             except Exception as e:
                 self.logger.warning(f"Failed to configure safe.directory: {e}")

@@ -1,5 +1,6 @@
 """Dashboard page - overview, quick actions, analytics."""
 
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,6 @@ from utils.background_backup import BackupTask
 from web.components.backup_card import task_status_row
 from web.components.data_table import relative_time
 from web.components.empty_state import empty_state
-from web.components.metrics import format_last_backup
 from web.components.status_badge import (
     health_label,
     health_level,
@@ -59,7 +59,7 @@ def render_dashboard(app: AppComponents) -> None:
     with col3:
         st.metric("Total Size", f"{health_metrics['total_size_gb']:.2f} GB")
     with col4:
-        st.metric("Last Backup", format_last_backup(health_metrics["newest_backup"]))
+        st.metric("Last Backup", relative_time(health_metrics["newest_backup"]))
     with col5:
         level = health_level(health_metrics["newest_backup"])
         label = health_label(level)
@@ -129,7 +129,7 @@ def render_dashboard(app: AppComponents) -> None:
     if health_metrics["items_without_recent_backup"]:
         items = ", ".join(health_metrics["items_without_recent_backup"])
         st.markdown(
-            f'<div class="health-alert">Items without recent backup (&gt;7 days): <strong>{items}</strong></div>',
+            f'<div class="health-alert">Items without recent backup (&gt;7 days): <strong>{html.escape(items)}</strong></div>',
             unsafe_allow_html=True,
         )
 
@@ -164,7 +164,7 @@ def _render_task_progress(task: BackupTask) -> None:
     """Show a single task's progress bar."""
     label = f"{task.task_type}: {task.target}" if task.target != "all" else task.task_type.replace("-", " ").title()
     st.markdown(
-        f'<div class="task-row">{label} &mdash; {task.progress}%</div>',
+        f'<div class="task-row">{html.escape(label)} &mdash; {task.progress}%</div>',
         unsafe_allow_html=True,
     )
     st.progress(task.progress / 100)

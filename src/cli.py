@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Command Line Interface for Quartermaster"""
 
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,27 @@ from utils.scheduler import BackupScheduler
 from utils.storage_analyzer import StorageAnalyzer
 
 console = Console()
+
+# Display truncation limits for CLI table columns
+_TRUNC_NAME = 30
+_TRUNC_PATH = 40
+_TRUNC_NAME_LONG = 35
+_TRUNC_CMD = 50
+_MAX_LIST_ITEMS = 20
+_TRUNC_MSG = 200
+
+# PHP log severity → (Rich style, icon)
+_PHP_SEVERITY_STYLES: dict[str, tuple[str, str]] = {
+    "fatal": ("bold red", "✗"),
+    "critical": ("bold red", "✗"),
+    "emergency": ("bold red", "✗"),
+    "error": ("red", "✗"),
+    "alert": ("red", "✗"),
+    "warning": ("yellow", "⚠"),
+    "warn": ("yellow", "⚠"),
+    "notice": ("blue", "ℹ"),
+    "deprecated": ("blue", "ℹ"),
+}
 
 # File extension to syntax highlighting language mapping
 _LANGUAGE_MAP = {
@@ -97,7 +119,7 @@ def _get_retention_manager() -> RetentionManager:
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """Quartermaster - CLI Interface"""
     pass
 
@@ -108,7 +130,7 @@ def cli():
 @click.option("--description", "-d", help="Description for the backup (reason for creating it)")
 @click.option("--incremental", "-i", is_flag=True, help="Perform incremental backup (only changed files)")
 @click.option("--full", "-f", is_flag=True, help="Force full backup even if incremental is possible")
-def backup(all, project, description, incremental, full):
+def backup(all: bool, project: str | None, description: str | None, incremental: bool, full: bool) -> None:
     """Backup projects"""
     # Handle conflicting flags
     if incremental and full:
@@ -150,7 +172,7 @@ def backup(all, project, description, incremental, full):
 @click.option("--all", is_flag=True, help="Backup all databases")
 @click.option("--database", help="Backup specific database")
 @click.option("--description", "-d", help="Description for the backup (reason for creating it)")
-def backup_db(all, database, description):
+def backup_db(all: bool, database: str | None, description: str | None) -> None:
     """Backup databases"""
     if all:
         console.print("[bold cyan]Backing up all databases...[/bold cyan]")
@@ -181,7 +203,7 @@ def backup_db(all, database, description):
 @click.option("--all", is_flag=True, help="Backup git history for all projects")
 @click.option("--project", help="Backup git history for specific project")
 @click.option("--description", "-d", help="Description for the backup")
-def backup_git(all, project, description):
+def backup_git(all: bool, project: str | None, description: str | None) -> None:
     """Backup git history as portable bundle files
 
     Git bundles are single-file archives containing full git history.
@@ -232,7 +254,7 @@ def backup_git(all, project, description):
     default="clone",
     help="clone: create new repo, fetch: update existing repo",
 )
-def restore_git(project, backup_file, target, mode):
+def restore_git(project: str, backup_file: str, target: str | None, mode: str) -> None:
     """Restore a git repository from a bundle backup"""
     console.print(f"[bold cyan]Restoring git backup for '{project}'...[/bold cyan]")
     console.print(f"[dim]Mode: {mode}[/dim]")
@@ -249,7 +271,7 @@ def restore_git(project, backup_file, target, mode):
 @click.option("--all", is_flag=True, help="Complete backup of all projects")
 @click.option("--project", help="Complete backup of specific project")
 @click.option("--description", "-d", help="Description for the backup")
-def backup_complete(all, project, description):
+def backup_complete(all: bool, project: str | None, description: str | None) -> None:
     """Create complete backups (includes .git, .claude, _debug, etc.)
 
     Complete backups include ALL files in the project folder except archive files
@@ -292,7 +314,7 @@ def backup_complete(all, project, description):
 
 
 @cli.command()
-def status():
+def status() -> None:
     """Show backup status"""
     console.print("[bold cyan]Quartermaster - Status[/bold cyan]\n")
 
@@ -308,7 +330,8 @@ def status():
         status = _get_backup_engine().get_backup_status("project", name)
 
         if status["exists"]:
-            latest = status["latest_backup"]["name"][:30] if status["latest_backup"] else "None"
+            latest_backup = status.get("latest_backup")
+            latest = latest_backup["name"][:_TRUNC_NAME] if latest_backup else "None"
             size = f"{status.get('total_size_mb', 0):.1f} MB"
         else:
             latest = "No backups"
@@ -316,7 +339,7 @@ def status():
 
         projects_table.add_row(
             name,
-            project["path"][:40] + "..." if len(project["path"]) > 40 else project["path"],
+            project["path"][:_TRUNC_PATH] + "..." if len(project["path"]) > _TRUNC_PATH else project["path"],
             str(status.get("backup_count", 0)),
             size,
             latest,
@@ -339,7 +362,8 @@ def status():
 
             if status["exists"] and status.get("backup_count", 0) > 0:
                 has_git_backups = True
-                latest = status["latest_backup"]["name"][:35] if status["latest_backup"] else "None"
+                latest_backup = status.get("latest_backup")
+                latest = latest_backup["name"][:_TRUNC_NAME_LONG] if latest_backup else "None"
                 size = f"{status.get('total_size_mb', 0):.1f} MB"
 
                 git_table.add_row(name, str(status.get("backup_count", 0)), size, latest)
@@ -364,7 +388,8 @@ def status():
         status = _get_backup_engine().get_backup_status("database", name)
 
         if status["exists"]:
-            latest = status["latest_backup"]["name"][:30] if status["latest_backup"] else "None"
+            latest_backup = status.get("latest_backup")
+            latest = latest_backup["name"][:_TRUNC_NAME] if latest_backup else "None"
             size = f"{status.get('total_size_mb', 0):.1f} MB"
         else:
             latest = "No backups"
@@ -388,7 +413,7 @@ def status():
 @cli.command()
 @click.argument("project")
 @click.option("--message", "-m", help="Commit message")
-def savepoint(project, message):
+def savepoint(project: str, message: str | None) -> None:
     """Create Git savepoint for a project"""
     project_config = _get_config().get_project(project)
 
@@ -412,7 +437,7 @@ def savepoint(project, message):
 @click.argument("project")
 @click.argument("backup_file")
 @click.option("--target", help="Target restore path (optional)")
-def restore(project, backup_file, target):
+def restore(project: str, backup_file: str, target: str | None) -> None:
     """Restore a project from backup"""
     console.print(f"[bold cyan]Restoring '{project}' from '{backup_file}'...[/bold cyan]")
 
@@ -427,7 +452,7 @@ def restore(project, backup_file, target):
 @cli.command()
 @click.argument("database")
 @click.argument("backup_file")
-def restore_db(database, backup_file):
+def restore_db(database: str, backup_file: str) -> None:
     """Restore a database from backup"""
     console.print(f"[bold cyan]Restoring database '{database}' from '{backup_file}'...[/bold cyan]")
 
@@ -443,7 +468,7 @@ def restore_db(database, backup_file):
 @click.argument("project")
 @click.argument("backup_file")
 @click.option("--pattern", help='Filter pattern (e.g., "*.py", "src/*")')
-def list_files(project, backup_file, pattern):
+def list_files(project: str, backup_file: str, pattern: str | None) -> None:
     """List files in a backup archive"""
     console.print(f"[bold cyan]Listing contents of {backup_file}...[/bold cyan]")
 
@@ -479,7 +504,7 @@ def list_files(project, backup_file, pattern):
 @click.argument("files", nargs=-1, required=True)
 @click.option("--target", help="Target directory for restore (defaults to original location)")
 @click.option("--flatten", is_flag=True, help="Extract files without directory structure")
-def restore_files(project, backup_file, files, target, flatten):
+def restore_files(project: str, backup_file: str, files: tuple[str, ...], target: str | None, flatten: bool) -> None:
     """Restore specific files from a backup
 
     Examples:
@@ -503,7 +528,7 @@ def restore_files(project, backup_file, files, target, flatten):
 @click.argument("backup_file")
 @click.argument("file_path")
 @click.option("--lines", default=100, help="Maximum lines to preview (default: 100)")
-def preview_file(project, backup_file, file_path, lines):
+def preview_file(project: str, backup_file: str, file_path: str, lines: int) -> None:
     """Preview a file from backup without extracting"""
     console.print(f"[bold cyan]Preview of {file_path} from {backup_file}:[/bold cyan]\n")
 
@@ -520,15 +545,15 @@ def preview_file(project, backup_file, file_path, lines):
         try:
             syntax = Syntax(content, language, theme="monokai", line_numbers=True)
             console.print(syntax)
-        except Exception:
-            # Fallback to plain text if syntax highlighting fails
+        except Exception as e:
+            logging.getLogger(__name__).debug("Syntax highlighting failed: %s", e)
             console.print(content)
     else:
         console.print(f"[red]Error: {content}[/red]")
 
 
 @cli.command()
-def list_projects():
+def list_projects() -> None:
     """List all configured projects"""
     projects = _get_config().get_all_projects()
 
@@ -556,7 +581,7 @@ def list_projects():
 
 
 @cli.command()
-def list_databases():
+def list_databases() -> None:
     """List all configured databases"""
     databases = _get_config().get_all_databases()
 
@@ -584,16 +609,17 @@ def list_databases():
 
 
 @cli.command()
-def web():
+def web() -> None:
     """Launch web interface"""
     host = _get_config().get_setting("web.host", "localhost")
     port = _get_config().get_setting("web.port", 8501)
     console.print("[bold cyan]Launching web interface...[/bold cyan]")
     console.print(f"[yellow]Open your browser at: http://{host}:{port}[/yellow]")
 
+    import signal
     import subprocess
 
-    result = subprocess.run(
+    proc = subprocess.Popen(
         [
             sys.executable,
             "-m",
@@ -606,8 +632,13 @@ def web():
             str(host),
         ]
     )
-    if result.returncode != 0:
-        console.print(f"[red]Streamlit exited with code {result.returncode}[/red]")
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.send_signal(signal.SIGINT)
+        proc.wait(timeout=10)
+    if proc.returncode and proc.returncode != 0:
+        console.print(f"[red]Streamlit exited with code {proc.returncode}[/red]")
 
 
 @cli.command()
@@ -615,7 +646,7 @@ def web():
 @click.option("--lines", default=50, help="Number of lines to display")
 @click.option("--severity", help="Filter by severity (error, warn, info, debug)")
 @click.option("--search", help="Search term to filter logs")
-def apache_logs(path, lines, severity, search):
+def apache_logs(path: str | None, lines: int, severity: str | None, search: str | None) -> None:
     """View Apache error logs"""
     if not path:
         detected = _get_apache_parser().log_paths
@@ -659,7 +690,7 @@ def apache_logs(path, lines, severity, search):
 
 @cli.command()
 @click.option("--path", help="Path to Apache error log file")
-def apache_stats(path):
+def apache_stats(path: str | None) -> None:
     """Show Apache log statistics"""
     if not path:
         detected = _get_apache_parser().log_paths
@@ -694,7 +725,7 @@ def apache_stats(path):
 @cli.command()
 @click.option("--path", help="Path to Apache error log file")
 @click.confirmation_option(prompt="Are you sure you want to clear the log file?")
-def clear_apache_log(path):
+def clear_apache_log(path: str | None) -> None:
     """Clear Apache error log file"""
     if not path:
         detected = _get_apache_parser().log_paths
@@ -719,7 +750,7 @@ def clear_apache_log(path):
 @click.option("--path", help="Path to Apache error log file")
 @click.option("--format", type=click.Choice(["json", "csv", "txt"]), default="json", help="Export format")
 @click.option("--output", help="Output file name")
-def export_apache_logs(path, format, output):
+def export_apache_logs(path: str | None, format: str, output: str | None) -> None:
     """Export Apache logs to file"""
     if not path:
         detected = _get_apache_parser().log_paths
@@ -735,7 +766,7 @@ def export_apache_logs(path, format, output):
     success, message = _get_apache_parser().export_logs(path, output_format=format, output_file=output)
 
     if success:
-        console.print(f"[green]✓[/green] {message}")
+        console.print(f"[green]✓[/green] Logs exported to {message}")
     else:
         console.print(f"[red]✗[/red] {message}")
 
@@ -745,7 +776,7 @@ def export_apache_logs(path, format, output):
 @click.option("--database", help="Verify database backups")
 @click.option("--all", is_flag=True, help="Verify all backups for specified type")
 @click.option("--fix", is_flag=True, help="Add missing checksums to old backups")
-def verify(project, database, all, fix):
+def verify(project: str | None, database: str | None, all: bool, fix: bool) -> None:
     """Verify backup integrity using checksums"""
     if project:
         item_type = "project"
@@ -789,7 +820,7 @@ def verify(project, database, all, fix):
 @click.option("--all", is_flag=True, help="Backfill checksums for all projects and databases")
 @click.option("--projects", is_flag=True, help="Backfill checksums for all projects")
 @click.option("--databases", is_flag=True, help="Backfill checksums for all databases")
-def backfill_checksums(all, projects, databases):
+def backfill_checksums(all: bool, projects: bool, databases: bool) -> None:
     """Add checksums to old backups that don't have them"""
     total_updated = 0
     total_backups = 0
@@ -827,7 +858,7 @@ def backfill_checksums(all, projects, databases):
 @click.option("--importance", type=click.Choice(["critical", "high", "normal", "low"]), help="Set importance level")
 @click.option("--pin", is_flag=True, help="Pin backup to preserve forever")
 @click.option("--description", "-d", help="Add or update description")
-def tag(project, database, backup_file, tags, importance, pin, description):
+def tag(project: str | None, database: str | None, backup_file: str, tags: tuple[str, ...], importance: str | None, pin: bool, description: str | None) -> None:
     """Tag a backup for preservation and organization"""
     if project:
         item_type = "project"
@@ -860,7 +891,7 @@ def tag(project, database, backup_file, tags, importance, pin, description):
 @cli.command()
 @click.option("--type", "item_type", type=click.Choice(["project", "database"]), help="Filter by type")
 @click.option("--name", "item_name", help="Filter by specific project/database name")
-def list_tagged(item_type, item_name):
+def list_tagged(item_type: str | None, item_name: str | None) -> None:
     """List all tagged backups"""
     console.print("[bold cyan]Tagged Backups[/bold cyan]\n")
 
@@ -921,7 +952,7 @@ def list_tagged(item_type, item_name):
     type=click.Choice(["hourly", "daily", "weekly", "monthly", "twice_daily"]),
     help="Use a schedule template",
 )
-def schedule(list_schedules, add_schedule, remove_pattern, setup_defaults, backup_type, target, schedule, template):
+def schedule(list_schedules: bool, add_schedule: bool, remove_pattern: str | None, setup_defaults: bool, backup_type: str | None, target: str | None, schedule: str | None, template: str | None) -> None:
     """Manage automated backup schedules"""
 
     if list_schedules:
@@ -943,7 +974,7 @@ def schedule(list_schedules, add_schedule, remove_pattern, setup_defaults, backu
         for sched in schedules:
             table.add_row(
                 sched["schedule"],
-                sched["command"][:50] + "..." if len(sched["command"]) > 50 else sched["command"],
+                sched["command"][:_TRUNC_CMD] + "..." if len(sched["command"]) > _TRUNC_CMD else sched["command"],
                 sched["human_readable"],
                 sched["comment"],
             )
@@ -1040,7 +1071,7 @@ def schedule(list_schedules, add_schedule, remove_pattern, setup_defaults, backu
 )
 @click.option("--search", help="Search term to filter logs")
 @click.option("--summary", is_flag=True, help="Show error summary instead of individual errors")
-def php_logs(project, system, lines, level, search, summary):
+def php_logs(project: str | None, system: bool, lines: int, level: str | None, search: str | None, summary: bool) -> None:
     """View and analyze PHP error logs"""
 
     if project:
@@ -1135,27 +1166,11 @@ def php_logs(project, system, lines, level, search, summary):
             return
 
         for log in logs[-lines:]:
-            # Color-code by severity
             level_name = log.get("level", "info")
-
-            if level_name in ["fatal", "critical", "emergency"]:
-                style = "bold red"
-                icon = "✗"
-            elif level_name in ["error", "alert"]:
-                style = "red"
-                icon = "✗"
-            elif level_name in ["warning", "warn"]:
-                style = "yellow"
-                icon = "⚠"
-            elif level_name in ["notice", "deprecated"]:
-                style = "blue"
-                icon = "ℹ"
-            else:
-                style = "white"
-                icon = "•"
+            style, icon = _PHP_SEVERITY_STYLES.get(level_name, ("white", "•"))
 
             timestamp = log.get("timestamp", "N/A")
-            message = log.get("message", log.get("raw", ""))[:200]
+            message = log.get("message", log.get("raw", ""))[:_TRUNC_MSG]
 
             console.print(f"[{style}]{icon} [{timestamp}] [{level_name.upper()}] {message}[/{style}]")
 
@@ -1173,7 +1188,7 @@ def php_logs(project, system, lines, level, search, summary):
 @click.option("--format", type=click.Choice(["html", "json", "txt"]), default="html", help="Report format")
 @click.option("--output", help="Output file name")
 @click.option("--hours", default=24, help="Hours to include in report")
-def php_report(project, format, output, hours):
+def php_report(project: str | None, format: str, output: str | None, hours: int) -> None:
     """Generate PHP error report"""
     console.print("[bold cyan]Generating PHP Error Report...[/bold cyan]")
 
@@ -1209,7 +1224,7 @@ def php_report(project, format, output, hours):
 @click.option("--cleanup", is_flag=True, help="Show cleanup candidates")
 @click.option("--timeline", is_flag=True, help="Show storage growth timeline")
 @click.option("--export", help="Export report to file (json/html/txt)")
-def storage(detailed, cleanup, timeline, export):
+def storage(detailed: bool, cleanup: bool, timeline: bool, export: str | None) -> None:
     """Analyze backup storage usage and find cleanup opportunities"""
 
     console.print("[bold cyan]Storage Analysis Report[/bold cyan]\n")
@@ -1299,10 +1314,10 @@ def storage(detailed, cleanup, timeline, export):
 
             # Show first 20 candidates
             all_candidates = candidates["projects"] + candidates["databases"]
-            for candidate in all_candidates[:20]:
+            for candidate in all_candidates[:_MAX_LIST_ITEMS]:
                 cleanup_table.add_row(
                     candidate["item_name"],
-                    candidate["name"][:30] + "..." if len(candidate["name"]) > 30 else candidate["name"],
+                    candidate["name"][:_TRUNC_NAME] + "..." if len(candidate["name"]) > _TRUNC_NAME else candidate["name"],
                     f"{candidate['size_mb']:.1f} MB",
                     f"{candidate['age_days']} days",
                     candidate["reason"],
@@ -1378,7 +1393,7 @@ def storage(detailed, cleanup, timeline, export):
 @click.option("--force", is_flag=True, help="Actually perform cleanup (dangerous!)")
 @click.option("--retention-days", default=DEFAULT_PROJECT_RETENTION_DAYS, help="Custom retention days")
 @click.option("--preserve-tagged", is_flag=True, default=True, help="Preserve tagged backups")
-def cleanup(dry_run, force, retention_days, preserve_tagged):
+def cleanup(dry_run: bool, force: bool, retention_days: int, preserve_tagged: bool) -> None:
     """Clean up old backups to free storage space"""
 
     if force and not dry_run:
@@ -1468,7 +1483,7 @@ def cleanup(dry_run, force, retention_days, preserve_tagged):
 @click.option("--suggest", help="Suggest optimal retention for an item")
 @click.option("--dry-run", is_flag=True, default=True, help="Preview changes without deleting")
 @click.option("--force", is_flag=True, help="Actually apply retention (delete files)")
-def retention(status, apply, optimize_all, suggest, dry_run, force):
+def retention(status: bool, apply: bool, optimize_all: bool, suggest: str | None, dry_run: bool, force: bool) -> None:
     """Manage tiered backup retention (hourly→daily→weekly→monthly)"""
 
     if status:
@@ -1510,7 +1525,7 @@ def retention(status, apply, optimize_all, suggest, dry_run, force):
             item_table.add_column("Weekly", justify="right")
             item_table.add_column("Monthly", justify="right")
 
-            for item in status_data["items"][:20]:
+            for item in status_data["items"][:_MAX_LIST_ITEMS]:
                 item_table.add_row(
                     item["name"],
                     item["type"],
@@ -1626,7 +1641,7 @@ def retention(status, apply, optimize_all, suggest, dry_run, force):
 @click.argument("project")
 @click.option("--message", "-m", help="Description/commit message for the snapshot")
 @click.option("--skip-databases", is_flag=True, help="Skip backing up associated databases")
-def snapshot(project, message, skip_databases):
+def snapshot(project: str, message: str | None, skip_databases: bool) -> None:
     """Create a complete snapshot: Git commit + project backup + database backups (if configured)
 
     This is a convenient command for daily workflow that combines:
@@ -1695,7 +1710,7 @@ def snapshot(project, message, skip_databases):
 @click.option("--lookup", "-l", help="Look up a single token (e.g. [EMAIL-a1b2])")
 @click.option("--no-clean", is_flag=True, help="Skip boilerplate cleaning")
 @click.option("--mappings", type=click.Path(), help="Custom mappings file path")
-def sanitize(file, unsanitize, lookup, no_clean, mappings):
+def sanitize(file: str | None, unsanitize: bool, lookup: str | None, no_clean: bool, mappings: str | None) -> None:
     """Sanitize or unsanitize text (strip PII, replace with tokens)."""
     from utils.text_sanitizer import TextSanitizer
 

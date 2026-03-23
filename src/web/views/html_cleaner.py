@@ -7,18 +7,23 @@ from typing import TYPE_CHECKING
 import streamlit as st
 
 from utils.html_cleaner import HtmlCleaner
+from web.cache import invalidate
 
 if TYPE_CHECKING:
     from web.state import AppComponents
 
-_cleaner = HtmlCleaner()
+_cleaner: HtmlCleaner | None = None
 
-_MODES = {
-    "Markdown": ("markdown", _cleaner.to_markdown),
-    "Structural HTML": ("html", _cleaner.to_structural),
-    "Minimal HTML": ("html", _cleaner.to_minimal),
-    "Text Only": ("text", _cleaner.to_text),
-}
+
+def _get_cleaner() -> HtmlCleaner:
+    global _cleaner
+    if _cleaner is None:
+        _cleaner = HtmlCleaner()
+    return _cleaner
+
+_MODE_KEYS = ["Markdown", "Structural HTML", "Minimal HTML", "Text Only"]
+_MODE_LANGS = {"Markdown": "markdown", "Structural HTML": "html", "Minimal HTML": "html", "Text Only": "text"}
+_MODE_METHODS = {"Markdown": "to_markdown", "Structural HTML": "to_structural", "Minimal HTML": "to_minimal", "Text Only": "to_text"}
 
 _MAX_UPLOAD_MB = 5
 
@@ -77,9 +82,9 @@ def render_html_cleaner(app: AppComponents | None = None) -> None:
     # ── Mode buttons ────────────────────────────────────────────────
     st.markdown("---")
     active_mode = st.session_state.get("html_cleaner_mode")
-    cols = st.columns(len(_MODES))
+    cols = st.columns(len(_MODE_KEYS))
 
-    for col, mode_name in zip(cols, _MODES):
+    for col, mode_name in zip(cols, _MODE_KEYS):
         with col:
             btn_type = "primary" if mode_name == active_mode else "secondary"
             if st.button(mode_name, use_container_width=True, type=btn_type):
@@ -89,16 +94,18 @@ def render_html_cleaner(app: AppComponents | None = None) -> None:
                     st.session_state.pop("html_cleaner_mode", None)
                     st.warning("Paste or upload HTML first.")
                     st.stop()
-                lang, fn = _MODES[mode_name]
+                cleaner = _get_cleaner()
+                fn = getattr(cleaner, _MODE_METHODS[mode_name])
                 st.session_state["html_cleaner_output"] = fn(src)
                 st.session_state["html_cleaner_mode"] = mode_name
+                invalidate()
                 st.rerun()
 
     # ── Output ──────────────────────────────────────────────────────
     output = st.session_state.get("html_cleaner_output")
     if output is not None:
         mode_label = st.session_state.get("html_cleaner_mode", "Result")
-        lang = _MODES.get(mode_label, ("text",))[0]
+        lang = _MODE_LANGS.get(mode_label, "text")
         lines = output.count("\n") + 1
         chars = len(output)
         st.markdown(f"**{mode_label}** — {chars:,} chars | {lines:,} lines")

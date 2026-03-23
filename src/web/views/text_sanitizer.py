@@ -7,11 +7,19 @@ from typing import TYPE_CHECKING
 import streamlit as st
 
 from utils.text_sanitizer import TextSanitizer, PHONENUMBERS_AVAILABLE
+from web.cache import invalidate
 
 if TYPE_CHECKING:
     from web.state import AppComponents
 
-_sanitizer = TextSanitizer()
+_sanitizer: TextSanitizer | None = None
+
+
+def _get_sanitizer() -> TextSanitizer:
+    global _sanitizer
+    if _sanitizer is None:
+        _sanitizer = TextSanitizer()
+    return _sanitizer
 
 
 def render_text_sanitizer(app: AppComponents | None = None) -> None:
@@ -42,7 +50,7 @@ def render_text_sanitizer(app: AppComponents | None = None) -> None:
 
     # ── Mappings summary ─────────────────────────────────────────
     with st.expander("Current mappings"):
-        mappings = _sanitizer.get_all_mappings()
+        mappings = _get_sanitizer().get_all_mappings()
         total = sum(len(v) for v in mappings.values())
         if total == 0:
             st.info("No mappings yet. Sanitize some text to populate.")
@@ -70,11 +78,12 @@ def _render_sanitize() -> None:
             st.warning("Paste some text first.")
             return
 
-        sanitized, stats = _sanitizer.sanitize(
+        sanitized, stats = _get_sanitizer().sanitize(
             text_input, clean_boilerplate=clean_boilerplate,
         )
         st.session_state["sanitizer_output"] = sanitized
         st.session_state["sanitizer_stats"] = stats
+        invalidate()
         st.rerun()
 
     output = st.session_state.get("sanitizer_output")
@@ -106,8 +115,9 @@ def _render_unsanitize() -> None:
             st.warning("Paste some text first.")
             return
 
-        restored = _sanitizer.unsanitize(text_input)
+        restored = _get_sanitizer().unsanitize(text_input)
         st.session_state["unsanitizer_output"] = restored
+        invalidate()
         st.rerun()
 
     output = st.session_state.get("unsanitizer_output")
@@ -129,7 +139,7 @@ def _render_lookup() -> None:
             st.warning("Enter a token.")
             return
 
-        result = _sanitizer.lookup(token.strip())
+        result = _get_sanitizer().lookup(token.strip())
         if result:
             st.success(f"{token.strip()} → {result}")
         else:

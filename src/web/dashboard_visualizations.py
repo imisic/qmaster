@@ -44,7 +44,16 @@ class DashboardVisualizer:
         self.storage_path = Path(storage_path)
         self.logger = logging.getLogger("DashboardVisualizer")
 
-    def get_backup_timeline(self, days: int = 30) -> Any | None:
+    @staticmethod
+    def _read_metadata(metadata_file: Path) -> dict[str, Any] | None:
+        """Read and parse a backup metadata JSON file. Returns None on failure."""
+        try:
+            with open(metadata_file) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError, OSError):
+            return None
+
+    def get_backup_timeline(self, days: int = 30) -> go.Figure | None:
         """Create a timeline chart of all backups"""
         if not PLOTLY_AVAILABLE or not PANDAS_AVAILABLE:
             return None
@@ -64,26 +73,26 @@ class DashboardVisualizer:
 
                 # Get all backups with metadata
                 for metadata_file in item_dir.glob("*.json"):
-                    try:
-                        with open(metadata_file) as f:
-                            metadata = json.load(f)
-
-                        timestamp = datetime.fromisoformat(metadata.get("timestamp", ""))
-                        if timestamp < cutoff:
-                            continue
-
-                        data.append(
-                            {
-                                "timestamp": timestamp,
-                                "item": item_dir.name,
-                                "type": category[:-1],  # Remove 's' from plural
-                                "size_mb": metadata.get("size_mb", 0),
-                                "backup_type": metadata.get("backup_type", "full"),
-                                "importance": metadata.get("importance", "normal"),
-                            }
-                        )
-                    except (json.JSONDecodeError, ValueError, FileNotFoundError):
+                    metadata = self._read_metadata(metadata_file)
+                    if metadata is None:
                         continue
+                    try:
+                        timestamp = datetime.fromisoformat(metadata.get("timestamp", ""))
+                    except ValueError:
+                        continue
+                    if timestamp < cutoff:
+                        continue
+
+                    data.append(
+                        {
+                            "timestamp": timestamp,
+                            "item": item_dir.name,
+                            "type": category[:-1],  # Remove 's' from plural
+                            "size_mb": metadata.get("size_mb", 0),
+                            "backup_type": metadata.get("backup_type", "full"),
+                            "importance": metadata.get("importance", "normal"),
+                        }
+                    )
 
         if not data:
             return None
@@ -111,7 +120,7 @@ class DashboardVisualizer:
 
         return fig
 
-    def get_storage_trends(self, days: int = 30) -> Any | None:
+    def get_storage_trends(self, days: int = 30) -> go.Figure | None:
         """Create storage usage trend chart"""
         if not PLOTLY_AVAILABLE or not PANDAS_AVAILABLE:
             return None
@@ -185,7 +194,7 @@ class DashboardVisualizer:
 
         return fig
 
-    def get_retention_distribution(self) -> Any | None:
+    def get_retention_distribution(self) -> go.Figure | None:
         """Create retention tier distribution chart"""
         if not PLOTLY_AVAILABLE:
             return None
@@ -233,7 +242,7 @@ class DashboardVisualizer:
 
         return fig
 
-    def get_backup_success_rate(self, days: int = 7) -> Any | None:
+    def get_backup_success_rate(self, days: int = 7) -> go.Figure | None:
         """Create backup success/failure rate chart"""
         if not PLOTLY_AVAILABLE:
             return None
@@ -295,7 +304,7 @@ class DashboardVisualizer:
 
         return fig
 
-    def get_storage_by_type(self) -> Any | None:
+    def get_storage_by_type(self) -> go.Figure | None:
         """Create storage usage by backup type chart"""
         if not PLOTLY_AVAILABLE:
             return None
@@ -314,18 +323,15 @@ class DashboardVisualizer:
                     continue
 
                 for metadata_file in item_dir.glob("*.json"):
-                    try:
-                        with open(metadata_file) as f:
-                            metadata = json.load(f)
-
-                        backup_type = metadata.get("backup_type", "full")
-                        size_mb = metadata.get("size_mb", 0)
-
-                        type_sizes[backup_type] += size_mb
-                        type_counts[backup_type] += 1
-
-                    except (json.JSONDecodeError, FileNotFoundError):
+                    metadata = self._read_metadata(metadata_file)
+                    if metadata is None:
                         continue
+
+                    backup_type = metadata.get("backup_type", "full")
+                    size_mb = metadata.get("size_mb", 0)
+
+                    type_sizes[backup_type] += size_mb
+                    type_counts[backup_type] += 1
 
         if not type_sizes:
             return None
@@ -381,10 +387,10 @@ class DashboardVisualizer:
                     continue
 
                 for metadata_file in item_dir.glob("*.json"):
+                    metadata = self._read_metadata(metadata_file)
+                    if metadata is None:
+                        continue
                     try:
-                        with open(metadata_file) as f:
-                            metadata = json.load(f)
-
                         activities.append(
                             {
                                 "timestamp": datetime.fromisoformat(metadata.get("timestamp", "")),
@@ -397,7 +403,7 @@ class DashboardVisualizer:
                                 "tags": metadata.get("tags", []),
                             }
                         )
-                    except (json.JSONDecodeError, ValueError, FileNotFoundError):
+                    except ValueError:
                         continue
 
         # Sort by timestamp and return most recent
@@ -486,5 +492,4 @@ class DashboardVisualizer:
             "newest_backup": newest_backup,
             "avg_backup_size_mb": avg_backup_size_mb,
             "items_without_recent_backup": items_without_recent_backup,
-            "critical_items": [],
         }

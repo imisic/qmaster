@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 try:
     import phonenumbers
@@ -17,8 +15,8 @@ try:
 except ImportError:
     PHONENUMBERS_AVAILABLE = False
 
-# Default storage location for token-to-PII mappings
-_DEFAULT_MAPPINGS_PATH = Path("data/sanitizer/mappings.json")
+# Default storage location for token-to-PII mappings (relative to project root)
+_DEFAULT_MAPPINGS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "sanitizer" / "mappings.json"
 
 # Countries for phone number detection (DT markets + common)
 _PHONE_REGIONS = [
@@ -245,7 +243,7 @@ class TextSanitizer:
 
     # ── Mappings persistence ────────────────────────────────────
 
-    def _load_mappings(self) -> dict:
+    def _load_mappings(self) -> dict[str, Any]:
         """Load mappings from JSON file, or return empty structure."""
         if self._mappings_path.exists():
             with open(self._mappings_path) as f:
@@ -253,7 +251,15 @@ class TextSanitizer:
         return {"version": 1, "emails": {}, "phones": {}, "ips": {}}
 
     def _save_mappings(self) -> None:
-        """Save mappings to JSON file."""
+        """Save mappings to JSON file with restricted permissions (0600)."""
         self._mappings_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._mappings_path, "w") as f:
-            json.dump(self._mappings, f, indent=2, ensure_ascii=False)
+        # Write to a temp file first, then rename for atomicity
+        tmp_path = self._mappings_path.with_suffix(".tmp")
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(self._mappings, f, indent=2, ensure_ascii=False)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        tmp_path.rename(self._mappings_path)

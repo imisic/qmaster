@@ -8,11 +8,19 @@ from typing import TYPE_CHECKING
 import streamlit as st
 
 from utils.web_scraper import PLAYWRIGHT_AVAILABLE, WebScraper
+from web.cache import invalidate
 
 if TYPE_CHECKING:
     from web.state import AppComponents
 
-_scraper = WebScraper()
+_scraper: WebScraper | None = None
+
+
+def _get_scraper() -> WebScraper:
+    global _scraper
+    if _scraper is None:
+        _scraper = WebScraper()
+    return _scraper
 
 
 def render_web_scraper(app: AppComponents | None = None) -> None:
@@ -73,7 +81,7 @@ def render_web_scraper(app: AppComponents | None = None) -> None:
 
         progress_bar = st.progress(0, text="Starting...")
 
-        def on_progress(current, total, url):
+        def on_progress(current: int, total: int, url: str) -> None:
             if total > 0:
                 progress_bar.progress(
                     min(current / total, 1.0),
@@ -81,9 +89,9 @@ def render_web_scraper(app: AppComponents | None = None) -> None:
                 )
 
         if mode == "Listed URLs only":
-            pages = _scraper.scrape_urls(raw_urls, js_mode=js_mode, progress_callback=on_progress)
+            pages = _get_scraper().scrape_urls(raw_urls, js_mode=js_mode, progress_callback=on_progress)
         else:
-            pages = _scraper.crawl_domain(raw_urls, max_pages=max_pages, js_mode=js_mode, progress_callback=on_progress)
+            pages = _get_scraper().crawl_domain(raw_urls, max_pages=max_pages, js_mode=js_mode, progress_callback=on_progress)
 
         progress_bar.empty()
 
@@ -97,7 +105,7 @@ def render_web_scraper(app: AppComponents | None = None) -> None:
             st.error("All URLs failed.")
             st.stop()
 
-        output = _scraper.format_output(pages)
+        output = _get_scraper().format_output(pages)
         total_words = sum(p.word_count for p in successful)
 
         st.session_state["web_scraper_output"] = output
@@ -106,6 +114,7 @@ def render_web_scraper(app: AppComponents | None = None) -> None:
             "errors": len(errors),
             "words": total_words,
         }
+        invalidate()
         st.rerun()
 
     # ── Output ───────────────────────────────────────────────────────

@@ -77,7 +77,7 @@ def render_projects(app: AppComponents) -> None:
 
         badge_html = type_badge(project.get("type", "unknown"), "project")
         desc = project.get("description", "")
-        st.markdown(f"{badge_html}&nbsp;&nbsp;{desc}", unsafe_allow_html=True)
+        st.markdown(f"{badge_html}&nbsp;&nbsp;{html.escape(desc)}", unsafe_allow_html=True)
 
         # Git status
         if project.get("git", {}).get("track", False):

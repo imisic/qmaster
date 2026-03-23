@@ -37,10 +37,11 @@ class BackupScheduler:
                 temp_file = f.name
 
             # Install new crontab
-            result = subprocess.run(["crontab", temp_file], capture_output=True, text=True, timeout=30)
-
-            # Clean up temp file
-            os.unlink(temp_file)
+            try:
+                result = subprocess.run(["crontab", temp_file], capture_output=True, text=True, timeout=30)
+            finally:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
 
             if result.returncode == 0:
                 return True, "Crontab updated successfully"
@@ -72,6 +73,10 @@ class BackupScheduler:
         # Add comment if provided
         if comment:
             entries.append(f"# {comment}")
+
+        # Validate schedule format (5 cron fields)
+        if not re.match(r"^[\d\*\/\-,]+(\s+[\d\*\/\-,]+){4}$", schedule.strip()):
+            return False, f"Invalid cron schedule format: {schedule}"
 
         # Add the cron entry
         entries.append(f"{schedule} {command}")

@@ -103,7 +103,7 @@ def _render_location_cleanup(app: AppComponents, stats: dict[str, Any], location
         st.warning(f"{location.upper()} backup directory not found")
         return
 
-    st.markdown(f'<span class="mono-text">{stats["path"]}</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="mono-text">{html_mod.escape(str(stats["path"]))}</span>', unsafe_allow_html=True)
 
     mcol1, mcol2, mcol3, mcol4 = st.columns(4)
     with mcol1:
@@ -517,12 +517,12 @@ def _render_project_history_cleanup(app: AppComponents) -> None:
             parts = full_path.rsplit("/", 1)
             if len(parts) == 2:
                 st.markdown(
-                    f'<span class="mono-text">{parts[0]}/</span>'
-                    f'<span style="color:#22c55e;font-family:monospace;font-weight:bold">{parts[1]}</span>',
+                    f'<span class="mono-text">{html_mod.escape(parts[0])}/</span>'
+                    f'<span style="color:#22c55e;font-family:monospace;font-weight:bold">{html_mod.escape(parts[1])}</span>',
                     unsafe_allow_html=True,
                 )
             else:
-                st.markdown(f'<span class="mono-text">{full_path}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="mono-text">{html_mod.escape(full_path)}</span>', unsafe_allow_html=True)
         with col_size:
             st.text(f"{project['size_mb']} MB")
         with col_conv:

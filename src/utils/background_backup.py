@@ -208,7 +208,7 @@ class BackgroundBackupManager:
         self.logger.info(f"Scheduled backup task: {task_id}")
         return task_id
 
-    def _execute_backup(self, task_id: str):
+    def _execute_backup(self, task_id: str) -> None:
         """Execute a backup task in background
 
         Args:

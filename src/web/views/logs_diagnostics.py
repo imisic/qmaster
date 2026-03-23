@@ -128,10 +128,16 @@ def _render_apache_logs(app: AppComponents) -> None:
             "Enter Apache error log path:", value=default_log_path[0] if default_log_path else "", key="apache_custom"
         )
         if custom_path and st.button("Add Custom Log Path", key="apache_add_custom"):
-            app.apache_parser.log_paths.append(custom_path)
-            st.success(f"Added: {custom_path}")
-            invalidate()
-            st.rerun()
+            resolved = os.path.realpath(custom_path)
+            if not any(resolved.startswith(d) for d in app.apache_parser._allowed_log_dirs):
+                st.error("Path is outside allowed log directories.")
+            elif not os.path.exists(resolved):
+                st.error("File does not exist.")
+            else:
+                app.apache_parser.log_paths.append(resolved)
+                st.success(f"Added: {resolved}")
+                invalidate()
+                st.rerun()
         return
 
     # Header
@@ -296,7 +302,7 @@ def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str,
             if "T" in ts:
                 hour = ts.split("T")[1][:2]
                 hourly_counts[hour] = hourly_counts.get(hour, 0) + 1
-        except Exception:
+        except (ValueError, IndexError, TypeError):
             continue
 
         if sev == "error":
@@ -357,8 +363,8 @@ def _render_apache_export(app: AppComponents, selected_log: str) -> None:
             )
 
         if success:
-            st.success(message)
-            file_path = message.split("to ")[-1]
+            file_path = message  # export_logs returns the file path on success
+            st.success(f"Logs exported to {file_path}")
             try:
                 if os.path.exists(file_path):
                     with open(file_path, "rb") as f:

@@ -18,18 +18,6 @@ COLORS = {
     "accent_purple": "#8b5cf6",
 }
 
-# Status level mapping
-STATUS_COLORS = {
-    "healthy": COLORS["accent_green"],
-    "success": COLORS["accent_green"],
-    "warning": COLORS["accent_amber"],
-    "critical": COLORS["accent_red"],
-    "error": COLORS["accent_red"],
-    "running": COLORS["accent_blue"],
-    "info": COLORS["accent_blue"],
-    "inactive": COLORS["text_muted"],
-}
-
 
 def apply_theme() -> None:
     """Inject the full CSS design system into the Streamlit app."""

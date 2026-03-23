@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
 from typing import Any
@@ -318,8 +318,6 @@ class PHPLogParser:
 
     def get_error_summary(self, log_path: str, last_hours: int = 24) -> dict[str, Any]:
         """Get summary of PHP errors in the last N hours"""
-        from datetime import timedelta
-
         cutoff_time = datetime.now() - timedelta(hours=last_hours)
         logs = self.read_php_logs(log_path, lines=0)
 
@@ -354,7 +352,7 @@ class PHPLogParser:
                 if log_time < cutoff_time:
                     continue
             except (ValueError, TypeError):
-                pass
+                continue  # Skip entries with unparseable timestamps for accurate time-windowed counts
 
             total_errors += 1
 

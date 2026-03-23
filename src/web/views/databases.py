@@ -1,5 +1,6 @@
 """Databases page - per-database management, backup/restore."""
 
+import html
 import importlib.util
 from typing import Any
 
@@ -67,15 +68,17 @@ def render_databases(app: AppComponents) -> None:
     info_col, stats_col = st.columns([3, 1])
 
     with info_col:
-        st.markdown(f'<div class="section-header">{selected_db}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{html.escape(selected_db)}</div>', unsafe_allow_html=True)
         badge = type_badge(db_config.get("type", "mysql"), "database")
+        host = html.escape(str(db_config.get('host', 'localhost')))
+        port = html.escape(str(db_config.get('port', 3306)))
         st.markdown(
-            f"{badge}&nbsp;&nbsp;{db_config.get('host', 'localhost')}:{db_config.get('port', 3306)}",
+            f"{badge}&nbsp;&nbsp;{host}:{port}",
             unsafe_allow_html=True,
         )
         desc = db_config.get("description", "")
         if desc:
-            st.markdown(f'<span style="color:#a1a7b5">{desc}</span>', unsafe_allow_html=True)
+            st.markdown(f'<span style="color:#a1a7b5">{html.escape(desc)}</span>', unsafe_allow_html=True)
 
     with stats_col:
         if status["exists"] and status.get("backup_count", 0) > 0:
