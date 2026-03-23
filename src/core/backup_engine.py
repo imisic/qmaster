@@ -1104,7 +1104,7 @@ password="{password}"
 
             if result.returncode != 0:
                 self.logger.debug(f"mysqldump stderr: {result.stderr}")
-                raise Exception("mysqldump failed (check logs for details)")
+                raise RuntimeError("mysqldump failed (check logs for details)")
 
             # Compress if requested
             if db_config.get("backup", {}).get("compress", True):

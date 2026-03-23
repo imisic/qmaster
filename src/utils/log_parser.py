@@ -169,15 +169,23 @@ class ApacheLogParser:
                 }
             ]
 
+    _ALLOWED_LOG_DIRS = ("/var/log/", "/var/log/apache2/", "/var/log/httpd/", "/var/log/nginx/")
+
     def _fix_log_permissions(self, log_path: str) -> bool:
         """Automatically fix Apache log permissions if possible"""
         try:
+            # Validate path is within expected log directories
+            resolved = os.path.realpath(log_path)
+            if not any(resolved.startswith(d) for d in self._ALLOWED_LOG_DIRS):
+                logging.getLogger(__name__).warning("Refused to chmod path outside log dirs: %s", resolved)
+                return False
+
             # Try to fix permissions using sudo without password (if configured)
             log_user = self.config.get_setting("apache.log_user", "www-data") if self.config else "www-data"
             log_group = self.config.get_setting("apache.log_group", "adm") if self.config else "adm"
             commands = [
-                ["sudo", "-n", "chmod", "640", log_path],
-                ["sudo", "-n", "chown", f"{log_user}:{log_group}", log_path],
+                ["sudo", "-n", "chmod", "640", resolved],
+                ["sudo", "-n", "chown", f"{log_user}:{log_group}", resolved],
             ]
 
             for cmd in commands:
@@ -188,6 +196,7 @@ class ApacheLogParser:
 
             return os.access(log_path, os.W_OK)
         except Exception:
+            logging.getLogger(__name__).debug("Failed to fix log permissions for %s", log_path, exc_info=True)
             return False
 
     def clear_log(self, log_path: str) -> tuple[bool, str]:

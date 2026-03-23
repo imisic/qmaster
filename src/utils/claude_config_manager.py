@@ -15,6 +15,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _is_broken_symlink(path: Path) -> bool:
+    """Check if path is a symlink whose target no longer exists."""
+    return path.is_symlink() and not path.exists()
+
+
 class ClaudeConfigManager:
     """Manages Claude Code configuration and cleanup operations"""
 
@@ -66,7 +71,7 @@ class ClaudeConfigManager:
         self._size_cache: dict[str, tuple[int, float]] = {}
         self._cache_ttl = cache_ttl
 
-    def invalidate_cache(self, directory: Path | None = None):
+    def invalidate_cache(self, directory: Path | None = None) -> None:
         """
         Invalidate size cache for a specific directory or all directories
 
@@ -1371,8 +1376,11 @@ class BackupCleanupManager:
                 if project_dir.is_dir():
                     stats["projects"]["count"] += 1
                     for backup_file in project_dir.glob("*.tar.gz"):
-                        size = backup_file.stat().st_size
-                        mtime = backup_file.stat().st_mtime
+                        if _is_broken_symlink(backup_file):
+                            continue
+                        stat = backup_file.stat()
+                        size = stat.st_size
+                        mtime = stat.st_mtime
                         age_days = (now - mtime) / 86400
 
                         stats["projects"]["size_mb"] += size / (1024 * 1024)
@@ -1396,8 +1404,11 @@ class BackupCleanupManager:
                 if db_dir.is_dir():
                     stats["databases"]["count"] += 1
                     for backup_file in db_dir.glob("*.sql.gz"):
-                        size = backup_file.stat().st_size
-                        mtime = backup_file.stat().st_mtime
+                        if _is_broken_symlink(backup_file):
+                            continue
+                        stat = backup_file.stat()
+                        size = stat.st_size
+                        mtime = stat.st_mtime
                         age_days = (now - mtime) / 86400
 
                         stats["databases"]["size_mb"] += size / (1024 * 1024)
@@ -1483,7 +1494,11 @@ class BackupCleanupManager:
 
         for backup_dir, pattern in dirs_to_check:
             # Get all backup files sorted by date (newest first)
-            backup_files = sorted(backup_dir.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)
+            backup_files = sorted(
+                (f for f in backup_dir.glob(pattern) if not _is_broken_symlink(f)),
+                key=lambda x: x.stat().st_mtime,
+                reverse=True,
+            )
 
             # Keep at least keep_minimum backups
             files_to_consider = backup_files[keep_minimum:] if len(backup_files) > keep_minimum else []
@@ -1542,7 +1557,10 @@ class BackupCleanupManager:
         if projects_dir.exists():
             for project_dir in sorted(projects_dir.iterdir()):
                 if project_dir.is_dir():
-                    backups = list(project_dir.glob("*.tar.gz"))
+                    backups = [
+                        f for f in project_dir.glob("*.tar.gz")
+                        if not _is_broken_symlink(f)
+                    ]
                     if backups:
                         total_size = sum(f.stat().st_size for f in backups)
                         oldest = min(backups, key=lambda x: x.stat().st_mtime)
@@ -1567,7 +1585,10 @@ class BackupCleanupManager:
         if databases_dir.exists():
             for db_dir in sorted(databases_dir.iterdir()):
                 if db_dir.is_dir():
-                    backups = list(db_dir.glob("*.sql.gz"))
+                    backups = [
+                        f for f in db_dir.glob("*.sql.gz")
+                        if not _is_broken_symlink(f)
+                    ]
                     if backups:
                         total_size = sum(f.stat().st_size for f in backups)
                         oldest = min(backups, key=lambda x: x.stat().st_mtime)

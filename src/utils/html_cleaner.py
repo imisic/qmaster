@@ -5,6 +5,18 @@ import re
 from bs4 import BeautifulSoup, NavigableString
 from markdownify import markdownify
 
+# Matches markdown links where the text contains newlines: [multi\nline text](url)
+_BROKEN_LINK_RE = re.compile(r"\[([^\]]+?)\]\(([^)]+)\)", re.DOTALL)
+
+
+def _fix_markdown_links(md: str) -> str:
+    """Collapse multi-line markdown link text into single lines."""
+    def _collapse(m: re.Match) -> str:
+        text = re.sub(r"\s+", " ", m.group(1)).strip()
+        url = m.group(2).strip()
+        return f"[{text}]({url})"
+    return _BROKEN_LINK_RE.sub(_collapse, md)
+
 
 class HtmlCleaner:
     """Clean and convert HTML content to various formats."""
@@ -23,13 +35,15 @@ class HtmlCleaner:
 
     # CSS utility classes that mark non-visible content
     _HIDDEN_CLASS_RE = re.compile(
-        r"\bd-none\b|\bd-print-none\b|\bhidden\b|\bsr-only\b"
-        r"|\bvisually-hidden\b|\binvalid-feedback\b|\bvalid-feedback\b"
+        r"^d-none$|^d-print-none$|^hidden$|^sr-only$"
+        r"|^visually-hidden$|^invalid-feedback$|^valid-feedback$"
     )
 
     # Inline style patterns that hide content
     _HIDDEN_STYLE_RE = re.compile(
-        r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE,
+        r"(?<![a-zA-Z-])display\s*:\s*none"
+        r"|(?<![a-zA-Z-])visibility\s*:\s*hidden",
+        re.IGNORECASE,
     )
 
     # Block-level elements (for text extraction line-break handling)
@@ -225,6 +239,7 @@ class HtmlCleaner:
                 heading_style="ATX",
                 bullets="-",
             )
+            result = _fix_markdown_links(result)
             result = self._strip_trailing_whitespace(result)
             result = self._collapse_blank_lines(result)
             return result.strip()
@@ -253,7 +268,7 @@ class HtmlCleaner:
                 for attr in attrs_to_remove:
                     del tag[attr]
 
-            return soup.prettify().strip()
+            return str(soup).strip()
         except Exception as e:
             return f"Error cleaning structural HTML: {e}"
 
@@ -280,7 +295,7 @@ class HtmlCleaner:
 
                 tag.attrs = saved
 
-            return soup.prettify().strip()
+            return str(soup).strip()
         except Exception as e:
             return f"Error cleaning minimal HTML: {e}"
 

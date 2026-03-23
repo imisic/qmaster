@@ -16,3 +16,12 @@ python-dateutil>=2.8.2
 # HTML processing
 beautifulsoup4>=4.12.0
 markdownify>=0.13.0
+
+# Web scraping
+requests>=2.31.0
+
+# Phone number detection (text sanitizer)
+phonenumbers>=8.13.0
+
+# Optional: JS rendering for dynamic pages
+# pip install playwright && playwright install chromium

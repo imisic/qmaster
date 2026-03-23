@@ -58,15 +58,19 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Claude Code project cache
-.claude/
+# Claude Code — skills/rules are public, local config is private
+.claude/settings.local.json
+.claude/projects/
+.claude/commands/
+.claude/memory/
+.claude/memory.json
+.claude/plans/
 
 # Temporary files
 *.tmp
 *.bak
 
 # Internal planning/dev docs
-CLAUDE.md
 GITHUB_RELEASE_PLAN.md
 _docs/
 

@@ -24,6 +24,8 @@ The name? I wanted something that handles the maintenance stuff I keep putting o
 
 **HTML cleaner** - Paste or upload HTML, pick an output format: Markdown, structural HTML (classes and IDs but no style garbage), minimal HTML (barely any attributes), or plain text. Mostly use this before feeding content to AI or cleaning up docs.
 
+**Web scraper** - Give it URLs and it fetches the pages, strips the cruft, and gives you clean Markdown. Can crawl an entire domain with depth limits, or just scrape a list of specific URLs. Optionally uses Playwright for JS-rendered pages that come back empty with plain requests.
+
 **The rest:**
 - Incremental and full tar.gz project archives
 - MySQL/MariaDB dumps, compressed, passwords encrypted at rest
@@ -109,7 +111,7 @@ Config files are in `config/`, gitignored. Only `.example` templates are tracked
 
 **Linux** and **Windows via WSL** (both tested). **macOS** probably works but I haven't tried - Apache log paths might need tweaking.
 
-Needs: Python 3.10+, `mysqldump`, `git`, `cron`.
+Needs: Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-rendered web scraping.
 
 ## Screenshots
 

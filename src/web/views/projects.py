@@ -1,5 +1,6 @@
 """Projects page - per-project management, git, backup/restore."""
 
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -71,8 +72,8 @@ def render_projects(app: AppComponents) -> None:
     info_col, stats_col = st.columns([3, 1])
 
     with info_col:
-        st.markdown(f'<div class="section-header">{selected_name}</div>', unsafe_allow_html=True)
-        st.markdown(f'<span class="project-path">{project["path"]}</span>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{html.escape(selected_name)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<span class="project-path">{html.escape(str(project["path"]))}</span>', unsafe_allow_html=True)
 
         badge_html = type_badge(project.get("type", "unknown"), "project")
         desc = project.get("description", "")

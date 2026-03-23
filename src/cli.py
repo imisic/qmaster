@@ -1689,5 +1689,57 @@ def snapshot(project, message, skip_databases):
         console.print(f"[bold green]✓ {msg}[/bold green]")
 
 
+@cli.command()
+@click.option("--file", "-f", type=click.Path(exists=True), help="Input file to sanitize")
+@click.option("--unsanitize", "-u", is_flag=True, help="Reverse: replace tokens with originals")
+@click.option("--lookup", "-l", help="Look up a single token (e.g. [EMAIL-a1b2])")
+@click.option("--no-clean", is_flag=True, help="Skip boilerplate cleaning")
+@click.option("--mappings", type=click.Path(), help="Custom mappings file path")
+def sanitize(file, unsanitize, lookup, no_clean, mappings):
+    """Sanitize or unsanitize text (strip PII, replace with tokens)."""
+    from utils.text_sanitizer import TextSanitizer
+
+    sanitizer = TextSanitizer(mappings_path=mappings) if mappings else TextSanitizer()
+
+    # Lookup mode
+    if lookup:
+        result = sanitizer.lookup(lookup)
+        if result:
+            console.print(f"[green]{lookup}[/green] → [bold]{result}[/bold]")
+        else:
+            console.print(f"[red]Token not found:[/red] {lookup}")
+        return
+
+    # Read input from file or stdin
+    if file:
+        text = Path(file).read_text(encoding="utf-8")
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        console.print("[red]Provide --file or pipe text via stdin.[/red]")
+        return
+
+    if unsanitize:
+        result_text = sanitizer.unsanitize(text)
+        click.echo(result_text)
+    else:
+        sanitized, stats = sanitizer.sanitize(text, clean_boilerplate=not no_clean)
+        click.echo(sanitized)
+
+        # Print stats to stderr so they don't mix with output
+        parts = []
+        if stats["emails_replaced"]:
+            parts.append(f"{stats['emails_replaced']} emails")
+        if stats["phones_replaced"]:
+            parts.append(f"{stats['phones_replaced']} phones")
+        if stats["ips_replaced"]:
+            parts.append(f"{stats['ips_replaced']} IPs")
+        err = Console(stderr=True)
+        if parts:
+            err.print(f"[dim]Replaced: {', '.join(parts)}[/dim]")
+        else:
+            err.print("[dim]No PII found.[/dim]")
+
+
 if __name__ == "__main__":
     cli()

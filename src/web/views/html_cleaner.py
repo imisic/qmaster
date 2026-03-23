@@ -1,8 +1,15 @@
 """HTML Cleaner view for the Quartermaster dashboard."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import streamlit as st
 
 from utils.html_cleaner import HtmlCleaner
+
+if TYPE_CHECKING:
+    from web.state import AppComponents
 
 _cleaner = HtmlCleaner()
 
@@ -31,7 +38,7 @@ def _read_uploaded_file(uploaded) -> str | None:
     return None
 
 
-def render_html_cleaner(app=None):
+def render_html_cleaner(app: AppComponents | None = None) -> None:
     """Render the HTML Cleaner page."""
     st.title("HTML Cleaner")
     st.caption("Clean and convert HTML content")

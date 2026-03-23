@@ -130,6 +130,7 @@ def _render_apache_logs(app: AppComponents) -> None:
         if custom_path and st.button("Add Custom Log Path", key="apache_add_custom"):
             app.apache_parser.log_paths.append(custom_path)
             st.success(f"Added: {custom_path}")
+            invalidate()
             st.rerun()
         return
 

@@ -1,5 +1,6 @@
 """Streamlit Web Dashboard for Quartermaster — thin dispatcher."""
 
+import html
 import os
 import sys
 
@@ -29,7 +30,7 @@ apply_theme()
 app = init_app_state()
 
 # ── Sidebar Navigation ──────────────────────────────────────────────
-ALL_PAGES = ["Dashboard", "Projects", "Databases", "Storage & Cleanup", "Logs & Diagnostics", "HTML Cleaner"]
+ALL_PAGES = list(PAGE_MAP.keys())
 
 with st.sidebar:
     st.markdown('<div class="sidebar-brand">Quartermaster</div>', unsafe_allow_html=True)
@@ -55,9 +56,9 @@ with st.sidebar:
 
         st.markdown("**Storage Paths**")
         paths = app.config.get_storage_paths()
-        st.markdown(f'<span class="mono-text">Local: {paths["local"]}</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="mono-text">Local: {html.escape(str(paths["local"]))}</span>', unsafe_allow_html=True)
         if paths.get("sync"):
-            st.markdown(f'<span class="mono-text">Sync: {paths["sync"]}</span>', unsafe_allow_html=True)
+            st.markdown(f'<span class="mono-text">Sync: {html.escape(str(paths["sync"]))}</span>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown(

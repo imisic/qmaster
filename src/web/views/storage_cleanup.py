@@ -1,5 +1,6 @@
 """Storage & Cleanup page - merges Backup Cleanup, Claude Config, and Retention."""
 
+import html as html_mod
 import logging
 from datetime import datetime, timedelta
 
@@ -609,10 +610,10 @@ def _render_mcp_servers(app: AppComponents) -> None:
             with st.expander(f"{server['name']}" + (" (disabled)" if server.get("disabled") else "")):
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.markdown(f'<span class="mono-text">Command: {server["command"]}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span class="mono-text">Command: {html_mod.escape(server["command"])}</span>', unsafe_allow_html=True)
                     if server.get("args"):
                         st.markdown(
-                            f'<span class="mono-text">Args: {" ".join(server["args"])}</span>', unsafe_allow_html=True
+                            f'<span class="mono-text">Args: {html_mod.escape(" ".join(server["args"]))}</span>', unsafe_allow_html=True
                         )
                     if server.get("env"):
                         st.text("Environment:")
