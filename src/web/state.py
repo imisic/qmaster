@@ -8,7 +8,7 @@ from core.backup_engine import BackupEngine
 from core.config_manager import ConfigManager
 from core.git_manager import GitManager
 from utils.background_backup import BackgroundBackupManager
-from utils.claude_config_manager import BackupCleanupManager, ClaudeConfigManager
+from utils.claude import BackupCleanupManager, ClaudeConfigManager
 from utils.log_parser import ApacheLogParser
 from utils.retention_manager import RetentionManager
 from web.dashboard_visualizations import DashboardVisualizer

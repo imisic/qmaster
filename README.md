@@ -26,10 +26,13 @@ The name? I wanted something that handles the maintenance stuff I keep putting o
 
 **Web scraper** - Give it URLs and it fetches the pages, strips the cruft, and gives you clean Markdown. Can crawl an entire domain with depth limits, or just scrape a list of specific URLs. Optionally uses Playwright for JS-rendered pages that come back empty with plain requests.
 
+**Text sanitizer** - Strips phone numbers, emails, and other personal info from text before you paste it into AI or share it publicly. You can unsanitize later to put the originals back.
+
 **The rest:**
 - Incremental and full tar.gz project archives
 - MySQL/MariaDB dumps, compressed, passwords encrypted at rest
 - Git savepoints and portable bundles
+- Tag and pin important backups so retention doesn't delete them
 - Streamlit dashboard + CLI (use whichever)
 - Dashboard catches overdue backups on startup and runs them in the background
 - Hourly/daily/weekly/monthly retention tiers
@@ -80,7 +83,35 @@ nano config/databases.yaml    # Database connections (passwords auto-encrypt on 
 
 ./run.sh apache-logs --lines 100 --severity error
 ./run.sh php-logs --project my-website --summary
+./run.sh sanitize                             # Strip personal info from text
 ```
+
+<details>
+<summary>More commands</summary>
+
+```bash
+# Git-specific backups
+./run.sh backup-git --project my-website      # Portable git bundle
+./run.sh restore-git my-website bundle.git
+./run.sh backup-complete --project my-website # Everything, including hidden dirs
+
+# Dig into a backup without restoring it
+./run.sh list-files my-website backup.tar.gz
+./run.sh preview-file my-website backup.tar.gz src/app.py
+./run.sh restore-files my-website backup.tar.gz "*.py" --target /path
+
+# Tagging and retention
+./run.sh tag --project my-website backup.tar.gz --tags production --pin
+./run.sh list-tagged
+./run.sh retention --status
+./run.sh backfill-checksums                   # Add checksums to old backups
+
+# Log extras
+./run.sh export-apache-logs --format csv
+./run.sh php-report
+```
+
+</details>
 
 ## Config
 

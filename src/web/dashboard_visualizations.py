@@ -79,6 +79,7 @@ class DashboardVisualizer:
                     try:
                         timestamp = datetime.fromisoformat(metadata.get("timestamp", ""))
                     except ValueError:
+                        logging.debug("Skipping backup: invalid timestamp %s", metadata.get("timestamp"))
                         continue
                     if timestamp < cutoff:
                         continue
