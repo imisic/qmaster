@@ -8,7 +8,14 @@ It's a Streamlit dashboard and a CLI. Nothing fancy, but it works for me.
 
 The name? I wanted something that handles the maintenance stuff I keep putting off - things that should happen at least **quarterly**. Quarterly → Quartermaster → `qmaster`.
 
-> **Built with [Claude Code](https://claude.ai/code).** I'm not a developer - I'm a product/telecom guy who wanted to solve real problems and see what Claude Code can do. [More on that below.](#how-this-got-made)
+> **Built with [Claude Code](https://claude.ai/code).** I'm not a developer - I'm a product guy who wanted to solve real problems and see what Claude Code can do. [More on that below.](#how-this-got-made)
+
+- **Backups** - project archives, MySQL dumps, git bundles, checksums, retention, NAS sync
+- **Log reader** - Apache and PHP logs with search, filtering, stats, export
+- **Claude Code cleanup** - find and clean `.claude` directories eating your disk
+- **HTML cleaner** - HTML to Markdown, plain text, or stripped HTML
+- **Web scraper** - URLs to clean Markdown, with optional JS rendering
+- **Text sanitizer** - strip personal info from text before sharing
 
 ## What's in here
 
