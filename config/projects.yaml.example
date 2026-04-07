@@ -1,0 +1,77 @@
+# Project Configuration for Quartermaster
+# Copy this file to projects.yaml and add your own projects:
+#   cp config/projects.yaml.example config/projects.yaml
+#
+# Each project defines a directory to backup with its settings.
+# Projects can also be auto-discovered via the web dashboard or CLI.
+
+projects:
+  # Example: PHP web application
+  my-website:
+    path: /home/user/projects/my-website
+    type: php
+    description: My Website - PHP Application
+    backup:
+      enabled: true
+      schedule: daily
+      retention_days: 30
+      time: "02:00"
+    git:
+      track: true
+      auto_commit: false
+      branch: main
+    exclude:
+      - vendor/
+      - node_modules/
+      - storage/cache/
+      - storage/logs/
+      - storage/sessions/
+      - _debug/
+      - .git/
+
+  # Example: Python project
+  my-python-app:
+    path: /home/user/projects/my-python-app
+    type: python
+    description: My Python App
+    backup:
+      enabled: true
+      schedule: daily
+      retention_days: 30
+      time: "02:00"
+    git:
+      track: true
+      auto_commit: false
+      branch: main
+    exclude:
+      - venv/
+      - __pycache__/
+      - "*.pyc"
+      - .pytest_cache/
+      - .venv/
+      - .env
+      - .git/
+      - "*.egg-info/"
+      - dist/
+      - build/
+
+  # Example: Node.js project
+  my-node-app:
+    path: /home/user/projects/my-node-app
+    type: node
+    description: My Node.js App
+    backup:
+      enabled: true
+      schedule: weekly
+      retention_days: 14
+      time: "03:00"
+    git:
+      track: true
+      auto_commit: false
+      branch: main
+    exclude:
+      - node_modules/
+      - dist/
+      - build/
+      - .next/
+      - .git/
