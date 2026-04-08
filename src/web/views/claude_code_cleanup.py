@@ -2,6 +2,7 @@
 
 import html as html_mod
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -14,8 +15,33 @@ from web.cache import (
     invalidate,
     list_claude_projects,
 )
+from web.components import section, show_confirm
 from web.components.action_bar import danger_button
 from web.state import AppComponents
+from web.theme import COLORS
+
+
+def _run_cleanup_action(
+    label: str,
+    fn: Callable[[], tuple[bool, str, dict]],
+    *,
+    success_msg_template: str = "Freed {freed:.1f} MB",
+) -> None:
+    """Run a cleanup function with a spinner and standard success/error UX."""
+    with st.spinner(f"Cleaning {label}..."):
+        success, message, details = fn()
+    if not success:
+        st.error(message)
+        return
+    details = details if isinstance(details, dict) else {}
+    freed = details.get("size_freed_mb", 0)
+    deleted = details.get("deleted", 0)
+    if freed > 0 or deleted > 0 or details.get("total_freed_mb", 0) > 0:
+        st.success(success_msg_template.format(freed=freed, deleted=deleted))
+        invalidate()
+        st.rerun()
+    else:
+        st.info("Nothing to clean")
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -25,40 +51,29 @@ from web.state import AppComponents
 
 def render_config_tab(app: AppComponents, stats: dict[str, Any], binaries_stats: dict[str, Any]) -> None:
     """Claude config cleanup tab."""
-    qcol1, qcol2, qcol3 = st.columns(3)
+    # ── Bulk actions row — single primary, demote the rest ───────────
+    qcol1, qcol2, qcol3 = st.columns([2, 2, 2])
     with qcol1:
         if st.button("Clean All (except projects)", type="primary", use_container_width=True, key="cc_clean_all"):
-            with st.spinner("Cleaning..."):
-                success, message, details = app.claude_config.clean_all(keep_projects=True)
-            if success and details.get("total_freed_mb", 0) > 0:
-                st.success(message)
-                invalidate()
-                st.rerun()
-            elif success:
-                st.info("Nothing to clean")
-            else:
-                st.error(message)
+            _open_clean_all_confirm(app, stats)
     with qcol2:
-        if binaries_stats.get("exists") and binaries_stats.get("version_count", 0) > 1:
-            if st.button("Clean Old Binaries", use_container_width=True, key="cc_clean_binaries"):
-                with st.spinner("Removing old versions..."):
-                    success, message, details = app.claude_config.clean_old_binaries()
-                if success and details.get("size_freed_mb", 0) > 0:
-                    st.success(message)
-                    invalidate()
-                    st.rerun()
-                elif success:
-                    st.info("Nothing to clean")
-                else:
-                    st.error(message)
-        else:
-            st.button("Clean Old Binaries", use_container_width=True, disabled=True, key="cc_clean_binaries_dis")
+        binaries_active = binaries_stats.get("exists") and binaries_stats.get("version_count", 0) > 1
+        if st.button(
+            "Clean Old Binaries",
+            use_container_width=True,
+            key="cc_clean_binaries",
+            disabled=not binaries_active,
+        ):
+            _open_clean_binaries_confirm(app, binaries_stats)
     with qcol3:
         if binaries_stats.get("exists"):
-            st.text(f"Binaries: {binaries_stats['total_size_mb']} MB ({binaries_stats['version_count']} version(s))")
+            st.caption(
+                f"Binaries: **{binaries_stats['total_size_mb']} MB** "
+                f"({binaries_stats['version_count']} version(s))"
+            )
 
-    st.markdown("---")
-    st.markdown('<div class="section-header">Category Cleanup</div>', unsafe_allow_html=True)
+    st.divider()
+    section("Category Cleanup")
 
     categories = _get_claude_categories(app)
     if not categories:
@@ -68,13 +83,13 @@ def render_config_tab(app: AppComponents, stats: dict[str, Any], binaries_stats:
             if cat["size_mb"] > 0:
                 _render_category_row(cat)
 
-    st.markdown("---")
+    st.divider()
     _render_misc_cleanup(app)
 
-    st.markdown("---")
+    st.divider()
     _render_advanced_cleanup(app)
 
-    st.markdown("---")
+    st.divider()
     st.markdown(
         '<div class="health-alert">'
         "Do NOT delete: plugins/ (MCP servers), settings.json (permissions), CLAUDE.md (instructions), mcp.json (MCP config)"
@@ -83,9 +98,60 @@ def render_config_tab(app: AppComponents, stats: dict[str, Any], binaries_stats:
     )
 
 
+def _open_clean_all_confirm(app: AppComponents, stats: dict[str, Any]) -> None:
+    """Confirm dialog for the big 'Clean All except projects' action."""
+    total_mb = stats.get("total_size_mb", 0)
+
+    def _on_confirm() -> None:
+        _run_cleanup_action(
+            "all categories",
+            lambda: app.claude_config.clean_all(keep_projects=True),
+            success_msg_template="Freed {freed:.1f} MB",
+        )
+
+    show_confirm(
+        title="Confirm Clean All",
+        warning=(
+            "This will permanently delete data from **all Claude Code categories** "
+            "(shell snapshots, todos, debug logs, file history, command history, image cache, "
+            "plans, paste cache, tasks, plugins cache, statsig, ide, telemetry, stale files).\n\n"
+            f"Project session history will be **preserved**. Current Claude config size on disk: "
+            f"~{total_mb} MB.\n\n"
+            "This cannot be undone."
+        ),
+        confirm_label="Clean All",
+        on_confirm=_on_confirm,
+        key_prefix="cc_clean_all_dlg",
+    )
+
+
+def _open_clean_binaries_confirm(app: AppComponents, binaries_stats: dict[str, Any]) -> None:
+    """Confirm dialog for removing old Claude Code binary versions."""
+    total = binaries_stats.get("total_size_mb", 0)
+    versions = binaries_stats.get("version_count", 0)
+
+    def _on_confirm() -> None:
+        _run_cleanup_action(
+            "old binaries",
+            lambda: app.claude_config.clean_old_binaries(),
+        )
+
+    show_confirm(
+        title="Confirm Clean Old Binaries",
+        warning=(
+            f"This will remove all but the most recent Claude Code binary version. "
+            f"Currently: **{versions} version(s)** installed (~{total} MB total). "
+            "The active version stays."
+        ),
+        confirm_label="Remove Old Versions",
+        on_confirm=_on_confirm,
+        key_prefix="cc_clean_bin_dlg",
+    )
+
+
 def _render_advanced_cleanup(app: AppComponents) -> None:
     """Subagent logs, orphaned projects, misc small caches."""
-    st.markdown('<div class="section-header">Advanced Cleanup</div>', unsafe_allow_html=True)
+    section("Advanced Cleanup")
 
     cc = app.claude_config
 
@@ -100,11 +166,11 @@ def _render_advanced_cleanup(app: AppComponents) -> None:
             format_func=lambda x: f"{x} days",
         )
     sa_stats = get_subagent_stats(cc, max_age)
+    total_mb = sa_stats.get("total_size_mb", 0)
+    old_mb = sa_stats.get("old", {}).get("size_mb", 0)
+    old_sessions = sa_stats.get("old", {}).get("session_count", 0)
+    total_sessions = sa_stats.get("session_count", 0)
     with sa_info:
-        total_mb = sa_stats.get("total_size_mb", 0)
-        old_mb = sa_stats.get("old", {}).get("size_mb", 0)
-        old_sessions = sa_stats.get("old", {}).get("session_count", 0)
-        total_sessions = sa_stats.get("session_count", 0)
         st.markdown("**Subagent Logs**")
         st.text(
             f"Total: {total_mb:.1f} MB across {total_sessions} sessions  ·  "
@@ -115,18 +181,26 @@ def _render_advanced_cleanup(app: AppComponents) -> None:
             "active/recent sessions stay untouched."
         )
     with sa_btn:
-        disabled = old_sessions == 0
-        if st.button("Clean Subagents", use_container_width=True, key="sa_clean_btn", disabled=disabled):
-            with st.spinner("Deleting old subagent logs..."):
-                success, message, details = cc.clean_subagent_logs(max_age_days=max_age)
-            if success and details.get("size_freed_mb", 0) > 0:
-                st.success(f"Freed {details['size_freed_mb']:.1f} MB ({details['deleted']} sessions)")
-                invalidate()
-                st.rerun()
-            elif success:
-                st.info("Nothing to clean")
-            else:
-                st.error(message)
+        if st.button(
+            "Clean Subagents",
+            use_container_width=True,
+            key="sa_clean_btn",
+            disabled=old_sessions == 0,
+        ):
+            show_confirm(
+                title="Confirm Clean Subagent Logs",
+                warning=(
+                    f"This will delete subagent audit logs from **{old_sessions}** session(s) "
+                    f"older than **{max_age} days** (~**{old_mb:.1f} MB**). Recent sessions are kept.\n\n"
+                    "This cannot be undone."
+                ),
+                confirm_label="Clean",
+                on_confirm=lambda: _run_cleanup_action(
+                    "subagent logs",
+                    lambda: cc.clean_subagent_logs(max_age_days=max_age),
+                ),
+                key_prefix="sa_clean_dlg",
+            )
 
     st.markdown("")
 
@@ -139,7 +213,7 @@ def _render_advanced_cleanup(app: AppComponents) -> None:
             st.text(f"{orphan_stats['count']} orphans  ·  {orphan_stats['total_size_mb']:.2f} MB")
             for o in orphan_stats["projects"][:5]:
                 st.markdown(
-                    f'<span class="mono-text" style="color:#a1a7b5">↳ {html_mod.escape(o["guessed_path"])}'
+                    f'<span class="mono-text" style="color:{COLORS["text_muted"]}">↳ {html_mod.escape(o["guessed_path"])}'
                     f"  ({o['size_mb']:.2f} MB)</span>",
                     unsafe_allow_html=True,
                 )
@@ -158,16 +232,17 @@ def _render_advanced_cleanup(app: AppComponents) -> None:
             key="orphan_clean_btn",
             disabled=not orphan_stats["exists"],
         ):
-            with st.spinner("Deleting orphaned caches..."):
-                success, message, details = cc.clean_orphan_projects()
-            if success and details.get("deleted", 0) > 0:
-                st.success(f"Deleted {details['deleted']} orphan(s), freed {details['size_freed_mb']:.2f} MB")
-                invalidate()
-                st.rerun()
-            elif success:
-                st.info("Nothing to clean")
-            else:
-                st.error(message)
+            show_confirm(
+                title="Confirm Clean Orphaned Caches",
+                warning=(
+                    f"This will delete **{orphan_stats['count']}** orphaned project cache(s) "
+                    f"(~**{orphan_stats['total_size_mb']:.2f} MB**) whose source directories "
+                    "no longer exist on disk.\n\nThis cannot be undone."
+                ),
+                confirm_label="Clean",
+                on_confirm=lambda: _run_cleanup_action("orphans", cc.clean_orphan_projects),
+                key_prefix="orphan_clean_dlg",
+            )
 
     st.markdown("")
 
@@ -195,16 +270,17 @@ def _render_advanced_cleanup(app: AppComponents) -> None:
             key="misc_claude_clean_btn",
             disabled=not misc_stats["exists"],
         ):
-            with st.spinner("Deleting misc caches..."):
-                success, message, details = cc.clean_misc_claude()
-            if success and details.get("deleted", 0) > 0:
-                st.success(f"Deleted {details['deleted']} item(s), freed {details['size_freed_mb']:.2f} MB")
-                invalidate()
-                st.rerun()
-            elif success:
-                st.info("Nothing to clean")
-            else:
-                st.error(message)
+            show_confirm(
+                title="Confirm Clean Misc Caches",
+                warning=(
+                    f"This will delete **{misc_stats['item_count']}** misc cache item(s) "
+                    f"(~**{misc_stats['total_size_mb']:.2f} MB**): usage-data, backups, sessions, "
+                    "teams, reports, security warnings, mcp.json backups.\n\nThis cannot be undone."
+                ),
+                confirm_label="Clean",
+                on_confirm=lambda: _run_cleanup_action("misc caches", cc.clean_misc_claude),
+                key_prefix="misc_clean_dlg",
+            )
 
 
 def _get_claude_categories(app: AppComponents) -> list[dict[str, Any]]:
@@ -245,7 +321,7 @@ def _get_claude_categories(app: AppComponents) -> list[dict[str, Any]]:
 
 
 def _render_category_row(cat: dict[str, Any]) -> None:
-    """Render a single cleanup category row."""
+    """Render a single cleanup category row with a confirm-gated Clean button."""
     col_name, col_size, col_files, col_btn = st.columns([3, 1, 1, 1])
     with col_name:
         st.markdown(f"**{cat['name']}**")
@@ -256,19 +332,39 @@ def _render_category_row(cat: dict[str, Any]) -> None:
     with col_btn:
         key = f"cc_cat_{cat['name'].lower().replace(' ', '_')}"
         if st.button("Clean", key=key, use_container_width=True):
-            with st.spinner(f"Cleaning {cat['name']}..."):
-                if cat["has_age"]:
-                    success, message, details = cat["clean_fn"](None)
-                else:
-                    success, message, details = cat["clean_fn"]()
-            if success and details.get("size_freed_mb", 0) > 0:
-                st.success(f"Freed {details['size_freed_mb']:.1f} MB")
-                invalidate()
-                st.rerun()
-            elif success:
-                st.info("Nothing to clean")
-            else:
-                st.error(message)
+            _open_category_confirm(cat)
+
+
+def _open_category_confirm(cat: dict[str, Any]) -> None:
+    """Confirm dialog for a single Category Cleanup row."""
+
+    def _on_confirm() -> None:
+        if cat["has_age"]:
+            result = cat["clean_fn"](None)
+        else:
+            result = cat["clean_fn"]()
+        success, message, details = result
+        if success and details.get("size_freed_mb", 0) > 0:
+            st.success(f"Freed {details['size_freed_mb']:.1f} MB")
+            invalidate()
+            st.rerun()
+        elif success:
+            st.info("Nothing to clean")
+        else:
+            st.error(message)
+
+    file_str = f" ({cat['file_count']} files)" if cat.get("file_count") else ""
+    show_confirm(
+        title=f"Confirm Clean — {cat['name']}",
+        warning=(
+            f"This will permanently delete the **{cat['name']}** data: "
+            f"~**{cat['size_mb']:.1f} MB**{file_str}.\n\n"
+            "This cannot be undone."
+        ),
+        confirm_label="Clean",
+        on_confirm=_on_confirm,
+        key_prefix=f"cc_cat_dlg_{cat['name'].lower().replace(' ', '_')}",
+    )
 
 
 def _render_misc_cleanup(app: AppComponents) -> None:
@@ -305,26 +401,45 @@ def _render_misc_cleanup(app: AppComponents) -> None:
         st.text(f"Misc: {misc_total:.1f} MB ({', '.join(parts)})")
     with col2:
         if st.button("Clean All Misc", use_container_width=True, key="cc_clean_misc"):
-            with st.spinner("Cleaning misc..."):
-                freed = 0
-                for cleaner in [
-                    lambda: cc.clean_dir("cache"),
-                    lambda: cc.clean_dir("statsig"),
-                    lambda: cc.clean_dir("ide"),
-                    lambda: cc.clean_dir("telemetry"),
-                    cc.clean_stale_files,
-                ]:
-                    success, message, details = cleaner()
-                    if success:
-                        freed += details.get("size_freed_mb", 0)
-                    else:
-                        logging.warning("Misc cleaner failed: %s", message)
-            if freed > 0:
-                st.success(f"Freed {freed:.1f} MB")
-                invalidate()
-                st.rerun()
-            else:
-                st.info("Nothing to clean")
+            _open_clean_all_misc_confirm(cc, misc_total, parts)
+
+
+def _open_clean_all_misc_confirm(cc: Any, misc_total: float, parts: list[str]) -> None:
+    """Confirm dialog for the bundled misc cleanup (cache/statsig/ide/telemetry/stale)."""
+
+    def _on_confirm() -> None:
+        with st.spinner("Cleaning misc..."):
+            freed = 0.0
+            for cleaner in [
+                lambda: cc.clean_dir("cache"),
+                lambda: cc.clean_dir("statsig"),
+                lambda: cc.clean_dir("ide"),
+                lambda: cc.clean_dir("telemetry"),
+                cc.clean_stale_files,
+            ]:
+                success, message, details = cleaner()
+                if success:
+                    freed += details.get("size_freed_mb", 0)
+                else:
+                    logging.warning("Misc cleaner failed: %s", message)
+        if freed > 0:
+            st.success(f"Freed {freed:.1f} MB")
+            invalidate()
+            st.rerun()
+        else:
+            st.info("Nothing to clean")
+
+    detail = ", ".join(parts) if parts else "—"
+    show_confirm(
+        title="Confirm Clean All Misc",
+        warning=(
+            f"This will delete bundled misc data: ~**{misc_total:.1f} MB** total ({detail}).\n\n"
+            "This cannot be undone."
+        ),
+        confirm_label="Clean",
+        on_confirm=_on_confirm,
+        key_prefix="cc_clean_misc_dlg",
+    )
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -352,9 +467,10 @@ def render_project_history_tab(app: AppComponents) -> None:
     by_name = {p["name"]: p for p in projects}
     selected = _get_selected_projects(projects)
 
+    # Selection toolbar — none of these are destructive, so none should be primary
     acol1, acol2, acol3, acol4 = st.columns(4)
     with acol1:
-        if st.button("Select All", use_container_width=True, type="primary", key="ph_sel_all"):
+        if st.button("Select All", use_container_width=True, key="ph_sel_all"):
             for p in projects:
                 st.session_state[_ph_check_key(p["name"])] = True
             st.rerun()
@@ -374,25 +490,12 @@ def render_project_history_tab(app: AppComponents) -> None:
     with acol4:
         keep_n = st.number_input("Keep N", min_value=1, max_value=10, value=3, key="ph_keep_n")
         if st.button(
-            f"Keep Last {keep_n}", use_container_width=True, type="primary", disabled=not selected, key="ph_keep_btn"
+            f"Keep Last {keep_n}",
+            use_container_width=True,
+            disabled=not selected,
+            key="ph_keep_btn",
         ):
-            with st.spinner(f"Keeping last {keep_n}..."):
-                total_deleted = 0
-                total_freed = 0.0
-                for pname in selected:
-                    proj = by_name.get(pname)
-                    if not proj:
-                        continue
-                    success, _message, details = app.claude_config.keep_last_n_conversations(proj["path"], keep_n)
-                    if success and details.get("deleted", 0) > 0:
-                        total_deleted += details["deleted"]
-                        total_freed += details["size_freed_mb"]
-            if total_deleted > 0:
-                st.success(f"Freed {total_freed:.1f} MB ({total_deleted} conversations)")
-                invalidate()
-                st.rerun()
-            else:
-                st.info("Nothing to delete")
+            _open_keep_last_confirm(app, by_name, selected, int(keep_n))
 
     age_col1, age_col2 = st.columns([1, 3])
     with age_col1:
@@ -400,10 +503,10 @@ def render_project_history_tab(app: AppComponents) -> None:
             "Older than", [7, 14, 30, 60, 90], index=0, key="ph_max_age", format_func=lambda x: f"{x} days"
         )
     with age_col2:
-        st.markdown('<div class="btn-align"></div>', unsafe_allow_html=True)
+        st.write("")  # baseline align with the selectbox above
         scope = "selected" if selected else "all"
         if st.button(f"Clean >{max_age}d ({scope} projects)", use_container_width=True, key="ph_age_clean_btn"):
-            _clean_old_conversations(app, projects, by_name, selected, max_age)
+            _open_clean_old_confirm(app, projects, by_name, selected, int(max_age))
 
     if selected:
         sel_size = sum(p["size_mb"] for p in projects if p["name"] in selected)
@@ -419,7 +522,8 @@ def render_project_history_tab(app: AppComponents) -> None:
             if len(parts) == 2:
                 st.markdown(
                     f'<span class="mono-text">{html_mod.escape(parts[0])}/</span>'
-                    f'<span style="color:#22c55e;font-family:monospace;font-weight:bold">{html_mod.escape(parts[1])}</span>',
+                    f'<span style="color:{COLORS["accent_green"]};font-family:monospace;font-weight:600">'
+                    f"{html_mod.escape(parts[1])}</span>",
                     unsafe_allow_html=True,
                 )
             else:
@@ -436,7 +540,7 @@ def render_project_history_tab(app: AppComponents) -> None:
 
     selected = _get_selected_projects(projects)
     if selected:
-        st.markdown("---")
+        st.divider()
         dcol1, dcol2 = st.columns(2)
         with dcol1:
             if st.button("Export Selected", use_container_width=True, key="ph_export"):
@@ -453,7 +557,7 @@ def render_project_history_tab(app: AppComponents) -> None:
                     st.success(f"Exported {len(exported)} project(s)")
         with dcol2:
             if danger_button("Delete Selected", key="ph_delete", disabled=not selected):
-                _show_project_delete_dialog(app, projects, selected)
+                _open_project_delete_confirm(app, projects, selected)
 
     old_threshold = datetime.now() - timedelta(days=90)
     old_projects = [p for p in projects if p["last_modified"] < old_threshold]
@@ -462,78 +566,134 @@ def render_project_history_tab(app: AppComponents) -> None:
         st.info(f"{len(old_projects)} projects older than 90 days ({old_size:.1f} MB)")
 
 
-def _clean_old_conversations(
+def _open_keep_last_confirm(
+    app: AppComponents,
+    by_name: dict[str, dict[str, Any]],
+    selected: list[str],
+    keep_n: int,
+) -> None:
+    """Confirm dialog before trimming each selected project to its last N conversations."""
+    sel_size = sum(p["size_mb"] for p in by_name.values() if p["name"] in selected)
+
+    def _on_confirm() -> None:
+        with st.spinner(f"Keeping last {keep_n}..."):
+            total_deleted = 0
+            total_freed = 0.0
+            for pname in selected:
+                proj = by_name.get(pname)
+                if not proj:
+                    continue
+                success, _message, details = app.claude_config.keep_last_n_conversations(proj["path"], keep_n)
+                if success and details.get("deleted", 0) > 0:
+                    total_deleted += details["deleted"]
+                    total_freed += details["size_freed_mb"]
+        if total_deleted > 0:
+            st.success(f"Freed {total_freed:.1f} MB ({total_deleted} conversations)")
+            invalidate()
+            st.rerun()
+        else:
+            st.info("Nothing to delete")
+
+    show_confirm(
+        title="Confirm Keep Last N",
+        warning=(
+            f"This will permanently delete every conversation beyond the **most recent "
+            f"{keep_n}** in each of **{len(selected)}** selected project(s) "
+            f"(~{sel_size:.1f} MB total).\n\nThis cannot be undone."
+        ),
+        confirm_label=f"Trim to last {keep_n}",
+        on_confirm=_on_confirm,
+        key_prefix="ph_keep_dlg",
+    )
+
+
+def _open_clean_old_confirm(
     app: AppComponents,
     projects: list[dict[str, Any]],
     by_name: dict[str, dict[str, Any]],
     selected: list[str],
     max_age: int,
 ) -> None:
-    """Run conversation cleanup against either selected or all projects."""
-    with st.spinner(f"Cleaning conversations older than {max_age} days..."):
-        if selected:
-            total_deleted = 0
-            total_freed = 0.0
-            projects_cleaned = 0
-            for pname in selected:
-                proj = by_name.get(pname)
-                if not proj:
-                    continue
-                success, _message, details = app.claude_config.clean_old_conversations(proj["path"], max_age)
-                if success and details.get("deleted", 0) > 0:
-                    projects_cleaned += 1
-                    total_deleted += details["deleted"]
-                    total_freed += details["size_freed_mb"]
-            if total_deleted > 0:
-                st.success(
-                    f"Freed {total_freed:.1f} MB ({total_deleted} items from {projects_cleaned} projects)"
-                )
-                invalidate()
-                st.rerun()
-            else:
-                st.info(f"No conversations older than {max_age} days in selected projects")
-        else:
-            success, _message, details = app.claude_config.clean_old_conversations_all_projects(max_age)
-            if success and details.get("conversations_deleted", 0) > 0:
-                st.success(
-                    f"Freed {details['size_freed_mb']:.1f} MB "
-                    f"({details['conversations_deleted']} items from {details['projects_cleaned']} projects)"
-                )
-                invalidate()
-                st.rerun()
-            else:
-                st.info(f"No conversations older than {max_age} days")
+    """Confirm dialog before deleting conversations older than N days."""
+    scope_label = f"{len(selected)} selected project(s)" if selected else "all projects"
 
+    def _on_confirm() -> None:
+        with st.spinner(f"Cleaning conversations older than {max_age} days..."):
+            if selected:
+                total_deleted = 0
+                total_freed = 0.0
+                projects_cleaned = 0
+                for pname in selected:
+                    proj = by_name.get(pname)
+                    if not proj:
+                        continue
+                    success, _message, details = app.claude_config.clean_old_conversations(proj["path"], max_age)
+                    if success and details.get("deleted", 0) > 0:
+                        projects_cleaned += 1
+                        total_deleted += details["deleted"]
+                        total_freed += details["size_freed_mb"]
+                if total_deleted > 0:
+                    st.success(
+                        f"Freed {total_freed:.1f} MB ({total_deleted} items from {projects_cleaned} projects)"
+                    )
+                    invalidate()
+                    st.rerun()
+                else:
+                    st.info(f"No conversations older than {max_age} days in selected projects")
+            else:
+                success, _message, details = app.claude_config.clean_old_conversations_all_projects(max_age)
+                if success and details.get("conversations_deleted", 0) > 0:
+                    st.success(
+                        f"Freed {details['size_freed_mb']:.1f} MB "
+                        f"({details['conversations_deleted']} items from {details['projects_cleaned']} projects)"
+                    )
+                    invalidate()
+                    st.rerun()
+                else:
+                    st.info(f"No conversations older than {max_age} days")
 
-@st.dialog("Confirm Delete Projects")
-def _show_project_delete_dialog(app: AppComponents, projects: list[dict[str, Any]], selected: list[str]) -> None:
-    """Confirm deletion of selected project histories."""
-    selected_size = sum(p["size_mb"] for p in projects if p["name"] in selected)
-    st.markdown(
-        f'<div class="health-alert health-alert-critical">'
-        f"Deleting {len(selected)} project(s) ({selected_size:.1f} MB). This is permanent."
-        f"</div>",
-        unsafe_allow_html=True,
+    show_confirm(
+        title=f"Confirm Clean >{max_age}d",
+        warning=(
+            f"This will permanently delete all conversations older than **{max_age} days** "
+            f"across **{scope_label}**.\n\nThis cannot be undone."
+        ),
+        confirm_label="Clean",
+        on_confirm=_on_confirm,
+        key_prefix="ph_age_dlg",
     )
 
-    confirm = st.checkbox("I understand this is permanent", key="ph_del_confirm_check")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<div class="danger-btn">', unsafe_allow_html=True)
-        if st.button("Delete", disabled=not confirm, use_container_width=True, key="ph_del_confirm_btn"):
-            with st.spinner("Deleting..."):
-                paths = [p["path"] for p in projects if p["name"] in selected]
-                success, message, _details = app.claude_config.delete_projects(paths, create_backup=True)
-            if success:
-                st.success(message)
-                for p in projects:
-                    st.session_state[_ph_check_key(p["name"])] = False
-                invalidate()
-                st.rerun()
-            else:
-                st.error(message)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with col2:
-        if st.button("Cancel", use_container_width=True, key="ph_del_cancel_btn"):
+def _open_project_delete_confirm(
+    app: AppComponents,
+    projects: list[dict[str, Any]],
+    selected: list[str],
+) -> None:
+    """Confirm dialog before deleting selected project history dirs entirely."""
+    selected_size = sum(p["size_mb"] for p in projects if p["name"] in selected)
+
+    def _on_confirm() -> None:
+        with st.spinner("Deleting..."):
+            paths = [p["path"] for p in projects if p["name"] in selected]
+            success, message, _details = app.claude_config.delete_projects(paths, create_backup=True)
+        if success:
+            st.success(message)
+            for p in projects:
+                st.session_state[_ph_check_key(p["name"])] = False
+            invalidate()
             st.rerun()
+        else:
+            st.error(message)
+
+    show_confirm(
+        title="Confirm Delete Projects",
+        warning=(
+            f"This will permanently delete **{len(selected)} project(s)** "
+            f"(~**{selected_size:.1f} MB**) from your Claude Code history. "
+            "A backup is automatically created before deletion.\n\n"
+            "This cannot be undone."
+        ),
+        confirm_label=f"Delete {len(selected)} project(s)",
+        on_confirm=_on_confirm,
+        key_prefix="ph_del_dlg",
+    )

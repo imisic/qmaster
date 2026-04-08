@@ -28,6 +28,39 @@ class BackupCleanupManager:
             return self.sync_path
         return self.local_path
 
+    @staticmethod
+    def _scan_category(
+        category_dir: Path,
+        pattern: str,
+        now: float,
+        stats: dict[str, Any],
+        category_key: str,
+    ) -> None:
+        """Scan a projects/ or databases/ backup dir and accumulate counts, sizes, and age buckets into `stats`."""
+        if not category_dir.exists():
+            return
+        mb = 1024 * 1024
+        bucket = stats[category_key]
+        for item_dir in category_dir.iterdir():
+            if not item_dir.is_dir():
+                continue
+            bucket["count"] += 1
+            for backup_file in item_dir.glob(pattern):
+                if _is_broken_symlink(backup_file):
+                    continue
+                stat = backup_file.stat()
+                size_mb = stat.st_size / mb
+                age_days = (now - stat.st_mtime) / 86400
+
+                bucket["size_mb"] += size_mb
+                bucket["files"] += 1
+                stats["total_size_mb"] += size_mb
+
+                for threshold, key in ((30, "old_30d"), (60, "old_60d"), (90, "old_90d")):
+                    if age_days > threshold:
+                        stats[key]["size_mb"] += size_mb
+                        stats[key]["files"] += 1
+
     def get_backup_stats(self, location: str = "local") -> dict[str, Any]:
         """
         Get statistics about all backups for a specific location
@@ -55,61 +88,8 @@ class BackupCleanupManager:
         stats["exists"] = True
         now = datetime.now().timestamp()
 
-        # Check projects
-        projects_dir = backup_path / "projects"
-        if projects_dir.exists():
-            for project_dir in projects_dir.iterdir():
-                if project_dir.is_dir():
-                    stats["projects"]["count"] += 1
-                    for backup_file in project_dir.glob("*.tar.gz"):
-                        if _is_broken_symlink(backup_file):
-                            continue
-                        stat = backup_file.stat()
-                        size = stat.st_size
-                        mtime = stat.st_mtime
-                        age_days = (now - mtime) / 86400
-
-                        stats["projects"]["size_mb"] += size / (1024 * 1024)
-                        stats["projects"]["files"] += 1
-                        stats["total_size_mb"] += size / (1024 * 1024)
-
-                        if age_days > 30:
-                            stats["old_30d"]["size_mb"] += size / (1024 * 1024)
-                            stats["old_30d"]["files"] += 1
-                        if age_days > 60:
-                            stats["old_60d"]["size_mb"] += size / (1024 * 1024)
-                            stats["old_60d"]["files"] += 1
-                        if age_days > 90:
-                            stats["old_90d"]["size_mb"] += size / (1024 * 1024)
-                            stats["old_90d"]["files"] += 1
-
-        # Check databases
-        databases_dir = backup_path / "databases"
-        if databases_dir.exists():
-            for db_dir in databases_dir.iterdir():
-                if db_dir.is_dir():
-                    stats["databases"]["count"] += 1
-                    for backup_file in db_dir.glob("*.sql.gz"):
-                        if _is_broken_symlink(backup_file):
-                            continue
-                        stat = backup_file.stat()
-                        size = stat.st_size
-                        mtime = stat.st_mtime
-                        age_days = (now - mtime) / 86400
-
-                        stats["databases"]["size_mb"] += size / (1024 * 1024)
-                        stats["databases"]["files"] += 1
-                        stats["total_size_mb"] += size / (1024 * 1024)
-
-                        if age_days > 30:
-                            stats["old_30d"]["size_mb"] += size / (1024 * 1024)
-                            stats["old_30d"]["files"] += 1
-                        if age_days > 60:
-                            stats["old_60d"]["size_mb"] += size / (1024 * 1024)
-                            stats["old_60d"]["files"] += 1
-                        if age_days > 90:
-                            stats["old_90d"]["size_mb"] += size / (1024 * 1024)
-                            stats["old_90d"]["files"] += 1
+        self._scan_category(backup_path / "projects", "*.tar.gz", now, stats, "projects")
+        self._scan_category(backup_path / "databases", "*.sql.gz", now, stats, "databases")
 
         # Round all values
         for key in ["total_size_mb"]:
@@ -121,33 +101,47 @@ class BackupCleanupManager:
         return stats
 
     def clean_old_backups(
-        self, max_age_days: int, backup_type: str = "all", keep_minimum: int = 15, location: str = "local"
+        self,
+        max_age_days: int,
+        backup_type: str = "all",
+        keep_minimum: int = 15,
+        location: str = "local",
+        dry_run: bool = False,
     ) -> tuple[bool, str, dict]:
         """
-        Clean backups older than specified days
+        Clean backups older than specified days.
 
         Args:
             max_age_days: Delete backups older than this many days
             backup_type: 'projects', 'databases', or 'all'
             keep_minimum: Always keep at least this many backups per project/database
             location: 'local', 'sync', or 'both'
+            dry_run: If True, scan and report what *would* be deleted without
+                     touching any files. The returned dict still contains
+                     `deleted`, `size_freed_mb`, and `files` for preview.
         """
         # Handle 'both' locations
         if location == "both":
-            local_result = self.clean_old_backups(max_age_days, backup_type, keep_minimum, "local")
-            sync_result = self.clean_old_backups(max_age_days, backup_type, keep_minimum, "sync")
+            local_result = self.clean_old_backups(
+                max_age_days, backup_type, keep_minimum, "local", dry_run=dry_run
+            )
+            sync_result = self.clean_old_backups(
+                max_age_days, backup_type, keep_minimum, "sync", dry_run=dry_run
+            )
 
             total_deleted = local_result[2].get("deleted", 0) + sync_result[2].get("deleted", 0)
             total_freed = local_result[2].get("size_freed_mb", 0) + sync_result[2].get("size_freed_mb", 0)
 
+            verb = "Would delete" if dry_run else "Deleted"
             return (
                 True,
-                f"Deleted {total_deleted} backups from both locations, freed {total_freed:.2f} MB",
+                f"{verb} {total_deleted} backups from both locations, freed {total_freed:.2f} MB",
                 {
                     "deleted": total_deleted,
                     "size_freed_mb": total_freed,
                     "local": local_result[2],
                     "sync": sync_result[2],
+                    "dry_run": dry_run,
                 },
             )
 
@@ -194,34 +188,38 @@ class BackupCleanupManager:
                 if mtime < cutoff_time:
                     try:
                         size = backup_file.stat().st_size
-                        backup_file.unlink()
 
-                        # Also delete metadata file if exists
-                        metadata_file = backup_file.parent / backup_file.name.replace(".tar.gz", ".json").replace(
-                            ".sql.gz", ".json"
-                        )
-                        try:
-                            metadata_file.unlink()
-                        except FileNotFoundError:
-                            pass
+                        if not dry_run:
+                            backup_file.unlink()
+
+                            # Also delete metadata file if exists
+                            metadata_file = backup_file.parent / backup_file.name.replace(
+                                ".tar.gz", ".json"
+                            ).replace(".sql.gz", ".json")
+                            try:
+                                metadata_file.unlink()
+                            except FileNotFoundError:
+                                pass
+                            self.logger.info("Deleted old backup: %s", backup_file)
 
                         deleted_count += 1
                         size_freed += size
                         deleted_files.append(backup_file.name)
-                        self.logger.info(f"Deleted old backup: {backup_file}")
 
-                    except Exception as e:
-                        self.logger.error(f"Failed to delete {backup_file}: {e}")
+                    except OSError as e:
+                        self.logger.error("Failed to delete %s: %s", backup_file, e)
 
         size_mb = round(size_freed / (1024 * 1024), 2)
 
+        verb = "Would delete" if dry_run else "Deleted"
         return (
             True,
-            f"Deleted {deleted_count} backups older than {max_age_days} days, freed {size_mb} MB",
+            f"{verb} {deleted_count} backups older than {max_age_days} days, freed {size_mb} MB",
             {
                 "deleted": deleted_count,
                 "size_freed_mb": size_mb,
                 "files": deleted_files[:20],  # Limit to first 20 for display
+                "dry_run": dry_run,
             },
         )
 

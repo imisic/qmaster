@@ -2,19 +2,19 @@
 
 import streamlit as st
 
-# Color palette
+# Color palette (harnesster-influenced GitHub dark, with qmaster purple preserved)
 COLORS = {
-    "bg_page": "#0e1117",
-    "bg_card": "#1a1f2e",
-    "bg_hover": "#262d3d",
-    "border": "#2d3548",
-    "text_heading": "#fafafa",
-    "text_body": "#a1a7b5",
-    "text_muted": "#6b7280",
-    "accent_blue": "#3b82f6",
-    "accent_green": "#22c55e",
-    "accent_amber": "#f59e0b",
-    "accent_red": "#ef4444",
+    "bg_page": "#0d1117",
+    "bg_card": "#161b22",
+    "bg_hover": "#1c2128",
+    "border": "#30363d",
+    "text_heading": "#f0f6fc",
+    "text_body": "#c9d1d9",
+    "text_muted": "#8b949e",
+    "accent_blue": "#58a6ff",
+    "accent_green": "#3fb950",
+    "accent_amber": "#d29922",
+    "accent_red": "#f85149",
     "accent_purple": "#8b5cf6",
 }
 
@@ -53,7 +53,7 @@ section[data-testid="stSidebar"] {{
 
 /* ── Typography ──────────────────────────────────────── */
 .page-title {{
-    font-size: 1.75rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: {COLORS["text_heading"]};
     margin-bottom: 0.25rem;
@@ -61,22 +61,53 @@ section[data-testid="stSidebar"] {{
 }}
 
 .page-subtitle {{
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: {COLORS["text_muted"]};
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
 }}
 
 .section-header {{
-    font-size: 1.25rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: {COLORS["text_heading"]};
-    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: {COLORS["text_muted"]};
+    margin: 1.5rem 0 0.5rem 0;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid {COLORS["border"]};
 }}
 
 .card-title {{
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: {COLORS["text_heading"]};
+}}
+
+/* Prominent heading for the currently-selected item on a detail page.
+   Emitted as a real <h2> so screen readers get proper landmarks. Sits
+   between .page-title (1.5rem/700) and body text (1rem/400) in the scale. */
+.item-heading {{
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: {COLORS["text_heading"]};
+    margin: 0.25rem 0 0.5rem 0;
+    padding: 0;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+}}
+
+/* Heading for a major content block within a page. Real <h3> tag.
+   Sits between .item-heading and .section-header in the type scale —
+   use to label significant sub-areas without resorting to the small
+   muted .section-header label that gets visually lost. */
+.block-heading {{
     font-size: 1rem;
     font-weight: 600;
     color: {COLORS["text_heading"]};
+    margin: 1rem 0 0.5rem 0;
+    padding: 0;
+    line-height: 1.3;
+    letter-spacing: 0;
 }}
 
 .mono-text {{
@@ -97,51 +128,51 @@ section[data-testid="stSidebar"] {{
 }}
 
 .status-healthy {{
-    background: rgba(34, 197, 94, 0.15);
+    background: rgba(63, 185, 80, 0.15);
     color: {COLORS["accent_green"]};
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    border: 1px solid rgba(63, 185, 80, 0.3);
 }}
 
 .status-success {{
-    background: rgba(34, 197, 94, 0.15);
+    background: rgba(63, 185, 80, 0.15);
     color: {COLORS["accent_green"]};
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    border: 1px solid rgba(63, 185, 80, 0.3);
 }}
 
 .status-warning {{
-    background: rgba(245, 158, 11, 0.15);
+    background: rgba(210, 153, 34, 0.15);
     color: {COLORS["accent_amber"]};
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    border: 1px solid rgba(210, 153, 34, 0.3);
 }}
 
 .status-critical {{
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(248, 81, 73, 0.15);
     color: {COLORS["accent_red"]};
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    border: 1px solid rgba(248, 81, 73, 0.3);
 }}
 
 .status-error {{
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(248, 81, 73, 0.15);
     color: {COLORS["accent_red"]};
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    border: 1px solid rgba(248, 81, 73, 0.3);
 }}
 
 .status-running {{
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(88, 166, 255, 0.15);
     color: {COLORS["accent_blue"]};
-    border: 1px solid rgba(59, 130, 246, 0.3);
+    border: 1px solid rgba(88, 166, 255, 0.3);
 }}
 
 .status-info {{
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(88, 166, 255, 0.15);
     color: {COLORS["accent_blue"]};
-    border: 1px solid rgba(59, 130, 246, 0.3);
+    border: 1px solid rgba(88, 166, 255, 0.3);
 }}
 
 .status-inactive {{
-    background: rgba(107, 114, 128, 0.15);
+    background: rgba(139, 148, 158, 0.15);
     color: {COLORS["text_muted"]};
-    border: 1px solid rgba(107, 114, 128, 0.3);
+    border: 1px solid rgba(139, 148, 158, 0.3);
 }}
 
 /* ── Type Badges ─────────────────────────────────────── */
@@ -156,7 +187,7 @@ section[data-testid="stSidebar"] {{
 }}
 
 .type-project {{
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(88, 166, 255, 0.15);
     color: {COLORS["accent_blue"]};
 }}
 
@@ -166,12 +197,12 @@ section[data-testid="stSidebar"] {{
 }}
 
 .type-full {{
-    background: rgba(59, 130, 246, 0.12);
+    background: rgba(88, 166, 255, 0.12);
     color: {COLORS["accent_blue"]};
 }}
 
 .type-incremental {{
-    background: rgba(34, 197, 94, 0.12);
+    background: rgba(63, 185, 80, 0.12);
     color: {COLORS["accent_green"]};
 }}
 
@@ -184,16 +215,16 @@ section[data-testid="stSidebar"] {{
 .qm-card {{
     background: {COLORS["bg_card"]};
     border: 1px solid {COLORS["border"]};
-    border-radius: 8px;
-    padding: 1.25rem;
-    margin-bottom: 0.75rem;
+    border-radius: 6px;
+    padding: 0.875rem;
+    margin-bottom: 0.5rem;
 }}
 
 .qm-card-muted {{
     background: {COLORS["bg_card"]};
     border: 1px solid {COLORS["border"]};
-    border-radius: 8px;
-    padding: 1rem;
+    border-radius: 6px;
+    padding: 0.875rem;
     opacity: 0.7;
 }}
 
@@ -201,8 +232,8 @@ section[data-testid="stSidebar"] {{
 [data-testid="stMetric"] {{
     background: {COLORS["bg_card"]};
     border: 1px solid {COLORS["border"]};
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    padding: 0.625rem 0.875rem;
 }}
 
 [data-testid="stMetricLabel"] {{
@@ -215,6 +246,30 @@ section[data-testid="stSidebar"] {{
     font-weight: 700 !important;
 }}
 
+/* Status-level metric cell — must match [data-testid="stMetric"] exactly
+   so a Health cell lines up next to numeric metrics in the same row. */
+.qm-metric-status {{
+    background: {COLORS["bg_card"]};
+    border: 1px solid {COLORS["border"]};
+    border-radius: 6px;
+    padding: 0.625rem 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}}
+
+.qm-metric-status-label {{
+    font-size: 0.8rem;
+    color: {COLORS["text_muted"]};
+    line-height: 1.4;
+}}
+
+.qm-metric-status-value {{
+    display: flex;
+    align-items: center;
+    min-height: 1.96rem; /* ~1.4rem * 1.4 line-height of st.metric value */
+}}
+
 /* ── Danger Buttons ──────────────────────────────────── */
 .danger-btn button {{
     background-color: {COLORS["accent_red"]} !important;
@@ -223,7 +278,7 @@ section[data-testid="stSidebar"] {{
 }}
 
 .danger-btn button:hover {{
-    background-color: #dc2626 !important;
+    background-color: #da3633 !important;
 }}
 
 /* ── Empty State ─────────────────────────────────────── */
@@ -254,8 +309,8 @@ section[data-testid="stSidebar"] {{
 
 /* ── Health Alert Banner ─────────────────────────────── */
 .health-alert {{
-    background: rgba(245, 158, 11, 0.1);
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(210, 153, 34, 0.1);
+    border: 1px solid rgba(210, 153, 34, 0.3);
     border-radius: 8px;
     padding: 0.75rem 1rem;
     color: {COLORS["accent_amber"]};
@@ -264,8 +319,8 @@ section[data-testid="stSidebar"] {{
 }}
 
 .health-alert-critical {{
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
     color: {COLORS["accent_red"]};
 }}
 
@@ -311,7 +366,7 @@ section[data-testid="stSidebar"] {{
 
 /* ── Stale Row Highlight ─────────────────────────────── */
 .stale-row {{
-    background: rgba(245, 158, 11, 0.06);
+    background: rgba(210, 153, 34, 0.06);
 }}
 
 /* ── Project Path ────────────────────────────────────── */
@@ -322,6 +377,20 @@ section[data-testid="stSidebar"] {{
     background: {COLORS["bg_hover"]};
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
+    word-break: break-all;
+}}
+
+/* Full-width mono path line that wraps on narrow viewports instead
+   of being clipped. Use for storage paths, log file paths, etc. */
+.mono-path {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: {COLORS["text_muted"]};
+    background: {COLORS["bg_hover"]};
+    padding: 0.35rem 0.6rem;
+    border-radius: 4px;
+    word-break: break-all;
+    margin: 0.25rem 0 0.75rem 0;
 }}
 
 /* ── Sidebar Brand ───────────────────────────────────── */
@@ -330,13 +399,6 @@ section[data-testid="stSidebar"] {{
     font-weight: 700;
     color: {COLORS["text_heading"]};
     padding: 0.25rem 0 1rem 0;
-}}
-
-/* ── Button aligned with labeled inputs ───────────────── */
-/* Use class="btn-align" on a div wrapping a button column
-   to push it down to align with selectbox/number_input siblings */
-.btn-align {{
-    padding-top: 1.65rem;
 }}
 
 /* ── Hide default Streamlit chrome ────────────────────── */

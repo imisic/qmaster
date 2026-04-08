@@ -32,13 +32,13 @@ app = init_app_state()
 # ── Sidebar Navigation ──────────────────────────────────────────────
 SIDEBAR_NAV: list[dict[str, str]] = [
     {"type": "page", "key": "Dashboard"},
-    {"type": "page", "key": "Claude Cleanup"},
-    {"type": "page", "key": "Logs"},
     {"type": "header", "label": "BACKUPS"},
     {"type": "page", "key": "Projects"},
     {"type": "page", "key": "Databases"},
     {"type": "page", "key": "Storage & Retention"},
-    {"type": "divider"},
+    {"type": "header", "label": "UTILITIES"},
+    {"type": "page", "key": "Claude Cleanup"},
+    {"type": "page", "key": "Logs"},
     {"type": "page", "key": "Tools"},
 ]
 
@@ -75,7 +75,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown(
-        f'<span style="color:#6b7280;font-size:0.75rem">Quartermaster v{APP_VERSION}</span>',
+        f'<span style="color:#8b949e;font-size:0.75rem">Quartermaster v{APP_VERSION}</span>',
         unsafe_allow_html=True,
     )
 

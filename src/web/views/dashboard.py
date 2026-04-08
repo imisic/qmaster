@@ -1,9 +1,12 @@
 """Dashboard page - overview, quick actions, analytics."""
 
 import html
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import streamlit as st
 
@@ -24,21 +27,24 @@ from web.cache import (
     get_storage_trends,
 )
 from utils.background_backup import BackupTask
-from web.components.backup_card import task_status_row
-from web.components.data_table import relative_time
-from web.components.empty_state import empty_state
-from web.components.status_badge import (
+from web.components import (
+    Metric,
+    block_heading,
+    empty_state,
     health_label,
     health_level,
-    status_badge,
+    metrics_grid,
+    page_header,
+    relative_time,
+    task_status_row,
 )
 from web.state import AppComponents
+from web.theme import COLORS
 
 
 def render_dashboard(app: AppComponents) -> None:
     """Render the Dashboard page."""
-    st.markdown('<div class="page-title">Dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">Backup overview and quick actions</div>', unsafe_allow_html=True)
+    page_header("Dashboard", "Backup overview and quick actions")
 
     # ── Running tasks (auto-refresh fragment) ────────────────────────
     _render_running_tasks(app)
@@ -51,37 +57,36 @@ def render_dashboard(app: AppComponents) -> None:
     projects = app.config.get_all_projects()
     databases = app.config.get_all_databases()
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("Projects", len(projects))
-    with col2:
-        st.metric("Databases", len(databases))
-    with col3:
-        st.metric("Total Size", f"{health_metrics['total_size_gb']:.2f} GB")
-    with col4:
-        st.metric("Last Backup", relative_time(health_metrics["newest_backup"]))
-    with col5:
-        level = health_level(health_metrics["newest_backup"])
-        label = health_label(level)
-        st.metric("Health", label)
-        st.markdown(status_badge(label, level), unsafe_allow_html=True)
+    level = health_level(health_metrics["newest_backup"])
+    metrics_grid(
+        [
+            Metric("Projects", len(projects)),
+            Metric("Databases", len(databases)),
+            Metric("Total Size", f"{health_metrics['total_size_gb']:.2f} GB"),
+            Metric("Last Backup", relative_time(health_metrics["newest_backup"])),
+            Metric("Health", health_label(level), status_level=level),
+        ],
+        max_columns=5,
+    )
 
-    st.markdown("---")
+    st.divider()
 
     # ── Quick Actions + Active Tasks ─────────────────────────────────
+    # The Dashboard is an overview, not a wizard with one obvious next step.
+    # All bulk-backup buttons are equal-weight toolbar actions, NOT primaries.
     action_col, task_col = st.columns([3, 2])
 
     with action_col:
-        st.markdown('<div class="section-header">Quick Actions</div>', unsafe_allow_html=True)
+        block_heading("Quick Actions")
         btn1, btn2, btn3 = st.columns(3)
 
         with btn1:
-            if st.button("Backup All Projects", type="primary", use_container_width=True, key="dash_backup_projects"):
+            if st.button("Backup All Projects", use_container_width=True, key="dash_backup_projects"):
                 task_id = app.bg_backup.schedule_backup("all-projects", "all")
                 st.success(f"Started in background (Task: {task_id[:8]}...)")
 
         with btn2:
-            if st.button("Backup All Databases", type="primary", use_container_width=True, key="dash_backup_dbs"):
+            if st.button("Backup All Databases", use_container_width=True, key="dash_backup_dbs"):
                 task_id = app.bg_backup.schedule_backup("all-databases", "all")
                 st.success(f"Started in background (Task: {task_id[:8]}...)")
 
@@ -94,28 +99,34 @@ def render_dashboard(app: AppComponents) -> None:
                     st.info("No backups needed")
 
     with task_col:
-        st.markdown('<div class="section-header">Active Tasks</div>', unsafe_allow_html=True)
+        block_heading("Active Tasks")
         running = app.bg_backup.get_running_tasks()
         if running:
             for task in running:
                 _render_task_progress(task)
         else:
+            # Full opacity here — qm-card-muted's 0.7 drops contrast on the
+            # only text in the cell ("All systems quiet") below the dark-mode
+            # secondary-text minimum.
             st.markdown(
-                '<div class="qm-card-muted" style="text-align:center;padding:1.5rem;">All systems quiet</div>',
+                f'<div class="qm-card" style="text-align:center;padding:1rem;color:{COLORS["text_muted"]};">'
+                "All systems quiet</div>",
                 unsafe_allow_html=True,
             )
 
-    st.markdown("---")
+    st.divider()
 
     # ── Recent Backups + Chart ───────────────────────────────────────
-    table_col, chart_col = st.columns(2)
+    # Chart needs more horizontal room than the sparse table — 2:3 split
+    # stops the table from looking stretched and the chart from feeling cramped.
+    table_col, chart_col = st.columns([2, 3])
 
     with table_col:
-        st.markdown('<div class="section-header">Recent Backups</div>', unsafe_allow_html=True)
+        block_heading("Recent Backups")
         _render_recent_backups_table(app, projects, databases)
 
     with chart_col:
-        st.markdown('<div class="section-header">Backup Timeline</div>', unsafe_allow_html=True)
+        block_heading("Backup Timeline (last 30 days)")
         timeline_fig = get_backup_timeline(app.visualizer, 30)
         if timeline_fig:
             st.plotly_chart(timeline_fig, use_container_width=True)
@@ -203,6 +214,17 @@ def _render_startup_summary(app: AppComponents) -> None:
         st.error(f"Background backups failed ({failed_count} tasks)")
 
 
+def _format_backup_timestamp(raw: str | None) -> str:
+    """Render an ISO timestamp as 'YYYY-MM-DD HH:MM' — no microseconds, no T."""
+    if not raw:
+        return ""
+    try:
+        return datetime.fromisoformat(raw).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        logger.debug("bad timestamp in recent-backups table: %r", raw)
+        return ""
+
+
 def _render_recent_backups_table(app: AppComponents, projects: dict[str, Any], databases: dict[str, Any]) -> None:
     """Unified recent-backups table (projects + databases)."""
     if not PANDAS_AVAILABLE:
@@ -219,8 +241,9 @@ def _render_recent_backups_table(app: AppComponents, projects: dict[str, Any], d
                     "Name": name,
                     "Type": "Project",
                     "Size (MB)": f"{lb['size_mb']:.2f}",
-                    "Last Backup": lb.get("modified", ""),
+                    "Last Backup": _format_backup_timestamp(lb.get("modified")),
                     "Age": relative_time(lb.get("modified")),
+                    "_sort": lb.get("modified", ""),
                 }
             )
 
@@ -233,16 +256,16 @@ def _render_recent_backups_table(app: AppComponents, projects: dict[str, Any], d
                     "Name": name,
                     "Type": "Database",
                     "Size (MB)": f"{lb['size_mb']:.2f}",
-                    "Last Backup": lb.get("modified", ""),
+                    "Last Backup": _format_backup_timestamp(lb.get("modified")),
                     "Age": relative_time(lb.get("modified")),
+                    "_sort": lb.get("modified", ""),
                 }
             )
 
     if rows:
         df = pd.DataFrame(rows)
-        if "Last Backup" in df.columns:
-            df["_sort"] = pd.to_datetime(df["Last Backup"], format="ISO8601", errors="coerce")
-            df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).head(10)
+        df["_sort"] = pd.to_datetime(df["_sort"], format="ISO8601", errors="coerce")
+        df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).head(10)
         st.dataframe(df, hide_index=True, use_container_width=True)
     else:
         empty_state("No backups yet", "Create your first backup to get started")

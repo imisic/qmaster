@@ -19,7 +19,21 @@ from web.cache import (
     get_retention_status,
     invalidate,
 )
+from web.components import (
+    Metric,
+    item_heading,
+    metrics_grid,
+    page_header,
+    section,
+    show_confirm,
+)
 from web.state import AppComponents
+
+
+# Maps for cleanup bar selectbox → backend values
+_AGE_MAP = {">30 days": 30, ">60 days": 60, ">90 days": 90}
+_TYPE_MAP = {"All": "all", "Projects only": "projects", "Databases only": "databases"}
+_TARGET_MAP = {"Local": "local", "Sync": "sync", "Both": "both"}
 
 
 def _render_storage_paths(app: AppComponents) -> None:
@@ -36,33 +50,43 @@ def _render_storage_paths(app: AppComponents) -> None:
 
 def render_storage_cleanup(app: AppComponents) -> None:
     """Render the Storage & Retention page."""
-    st.markdown('<div class="page-title">Storage & Retention</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="page-subtitle">Disk usage, retention policy, and cleanup across all backup locations</div>',
-        unsafe_allow_html=True,
+    page_header(
+        "Storage & Retention",
+        "Disk usage, retention policy, and cleanup across all backup locations",
     )
     _render_storage_paths(app)
 
-    # ── Global Metrics ───────────────────────────────────────────────
     local_stats = get_backup_stats(app.backup_cleanup, "local")
     sync_stats = get_backup_stats(app.backup_cleanup, "sync")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        local_size = local_stats["total_size_mb"] if local_stats["exists"] else 0
-        st.metric("Local Storage", f"{local_size:.0f} MB")
-    with col2:
-        sync_size = sync_stats["total_size_mb"] if sync_stats["exists"] else 0
-        st.metric("Sync Storage", f"{sync_size:.0f} MB")
-    with col3:
-        storage_path = str(app.config.get_storage_paths()["local"])
-        usage = shutil.disk_usage(storage_path)
-        free_gb = usage.free / (1024**3)
-        st.metric("Disk Free", f"{free_gb:.1f} GB")
+    # ── Global Overview — non-derivable numbers only ─────────────────
+    # Per-location totals (Local/Sync size) live inside the tabs so we
+    # don't show the same number twice on one screen. Top row is the
+    # page-wide context: disk headroom and total backup count.
+    storage_path = str(app.config.get_storage_paths()["local"])
+    usage = shutil.disk_usage(storage_path)
+    free_gb = usage.free / (1024**3)
+    total_gb = usage.total / (1024**3)
+    free_pct = (usage.free / usage.total) * 100 if usage.total else 0
 
-    st.markdown("---")
+    total_backups = _count_total_backups(local_stats, sync_stats)
+    total_size_mb = (local_stats.get("total_size_mb", 0) or 0) + (sync_stats.get("total_size_mb", 0) or 0)
 
-    # ── Tabs ─────────────────────────────────────────────────────────
+    metrics_grid(
+        [
+            Metric("Total Backups", total_backups),
+            Metric("Total Size", f"{total_size_mb:.0f} MB"),
+            Metric(
+                "Disk Free",
+                f"{free_gb:.1f} GB",
+                help=f"{free_pct:.0f}% of {total_gb:.0f} GB",
+            ),
+        ],
+        max_columns=3,
+    )
+
+    st.divider()
+
     tab1, tab2 = st.tabs(["Backup Storage", "Retention Policy"])
 
     with tab1:
@@ -73,119 +97,223 @@ def render_storage_cleanup(app: AppComponents) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Tab 1: Backup Storage
+# Tab 1: Backup Storage (unified single cleanup bar + location toggle)
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _render_backup_storage(app: AppComponents, local_stats: dict[str, Any], sync_stats: dict[str, Any]) -> None:
-    """Backup storage cleanup controls for local and sync locations."""
-    left, right = st.columns(2)
-
-    with left:
-        st.markdown('<div class="section-header">Local Storage</div>', unsafe_allow_html=True)
-        _render_location_cleanup(app, local_stats, "local", "local")
-
-    with right:
-        st.markdown('<div class="section-header">Sync Storage</div>', unsafe_allow_html=True)
-        _render_location_cleanup(app, sync_stats, "sync", "sync")
-
-    st.markdown("---")
-
-    # Clean Both
-    st.markdown('<div class="section-header">Clean Both Locations</div>', unsafe_allow_html=True)
-    _render_cleanup_controls(app, "both", "both")
+def _count_total_backups(local_stats: dict[str, Any], sync_stats: dict[str, Any]) -> int:
+    """Sum backup file counts across both locations."""
+    total = 0
+    for stats in (local_stats, sync_stats):
+        if not stats.get("exists"):
+            continue
+        total += stats.get("projects", {}).get("files", 0)
+        total += stats.get("databases", {}).get("files", 0)
+    return total
 
 
-def _render_location_cleanup(app: AppComponents, stats: dict[str, Any], location: str, prefix: str) -> None:
-    """Render metrics + controls for a single backup location."""
-    if not stats["exists"]:
-        st.warning(f"{location.upper()} backup directory not found")
+def _render_backup_storage(
+    app: AppComponents,
+    local_stats: dict[str, Any],
+    sync_stats: dict[str, Any],
+) -> None:
+    """Single unified backup storage view: pick a location to inspect, then clean."""
+    available = []
+    if local_stats["exists"]:
+        available.append("Local")
+    if sync_stats["exists"]:
+        available.append("Sync")
+
+    if not available:
+        st.warning("No backup storage directories found")
         return
 
-    st.markdown(f'<span class="mono-text">{html_mod.escape(str(stats["path"]))}</span>', unsafe_allow_html=True)
+    # Pill toggle constrained to a narrow toolbar so it doesn't leave
+    # an 85% empty row to the right of two small pills.
+    toggle_col, _rest = st.columns([1, 5])
+    with toggle_col:
+        view_loc = st.segmented_control(
+            "View",
+            available,
+            default=available[0],
+            key="storage_view_loc",
+            label_visibility="collapsed",
+        )
+    if not view_loc:
+        view_loc = available[0]
 
-    mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-    with mcol1:
-        st.metric(
-            "Total",
-            f"{stats['total_size_mb']:.0f} MB",
-            help=f"Projects: {stats.get('projects', {}).get('files', 0)}, DBs: {stats.get('databases', {}).get('files', 0)}",
-        )
-    with mcol2:
-        st.metric(
-            ">30d",
-            f"{stats['old_30d']['size_mb']:.0f} MB",
-            delta=f"{stats['old_30d']['files']} files",
-            delta_color="off",
-        )
-    with mcol3:
-        st.metric(
-            ">60d",
-            f"{stats['old_60d']['size_mb']:.0f} MB",
-            delta=f"{stats['old_60d']['files']} files",
-            delta_color="off",
-        )
-    with mcol4:
-        st.metric(
-            ">90d",
-            f"{stats['old_90d']['size_mb']:.0f} MB",
-            delta=f"{stats['old_90d']['files']} files",
-            delta_color="off",
-        )
-
-    _render_cleanup_controls(app, location, prefix)
+    viewed_stats = local_stats if view_loc == "Local" else sync_stats
+    _render_location_metrics(view_loc, viewed_stats)
 
     with st.expander("Backup Details"):
-        details = get_backup_details(app.backup_cleanup, location)
+        details = get_backup_details(
+            app.backup_cleanup,
+            "local" if view_loc == "Local" else "sync",
+        )
         if details:
             for item in details:
                 kind = "Project" if item["type"] == "project" else "Database"
                 st.text(
-                    f"{kind}: {item['name']} — {item['count']} backups, {item['size_mb']} MB (oldest: {item['oldest_days']}d)"
+                    f"{kind}: {item['name']} — {item['count']} backups, "
+                    f"{item['size_mb']} MB (oldest: {item['oldest_days']}d)"
                 )
         else:
             st.info("No backups found")
 
+    st.divider()
+    section("Clean Up")
+    st.caption(
+        "Permanently removes backups older than the selected age. "
+        "The `Keep minimum` setting guarantees at least that many recent backups "
+        "are retained per item, even if they're older than the cutoff."
+    )
+    _render_cleanup_bar(app)
 
-def _render_cleanup_controls(app: AppComponents, location: str, prefix: str) -> None:
-    """Age/type/keep selectors + clean button."""
-    col_age, col_type, col_keep, col_btn = st.columns([1, 1, 1, 1])
 
+def _render_location_metrics(view_loc: str, stats: dict[str, Any]) -> None:
+    """Render prominent location heading + path + 4-metric grid."""
+    item_heading(view_loc)
+    st.markdown(
+        f'<div class="mono-path">{html_mod.escape(str(stats["path"]))}</div>',
+        unsafe_allow_html=True,
+    )
+
+    projects_files = stats.get("projects", {}).get("files", 0)
+    dbs_files = stats.get("databases", {}).get("files", 0)
+
+    metrics_grid(
+        [
+            Metric(
+                "Total",
+                f"{stats['total_size_mb']:.0f} MB",
+                help=f"Projects: {projects_files}, Databases: {dbs_files}",
+            ),
+            Metric(
+                ">30 days",
+                f"{stats['old_30d']['size_mb']:.0f} MB",
+                help=f"{stats['old_30d']['files']} files",
+            ),
+            Metric(
+                ">60 days",
+                f"{stats['old_60d']['size_mb']:.0f} MB",
+                help=f"{stats['old_60d']['files']} files",
+            ),
+            Metric(
+                ">90 days",
+                f"{stats['old_90d']['size_mb']:.0f} MB",
+                help=f"{stats['old_90d']['files']} files",
+            ),
+        ],
+    )
+
+
+def _render_cleanup_bar(app: AppComponents) -> None:
+    """Cleanup bar with dry-run preview + confirm dialog.
+
+    Layout: Target | Age | Type | Keep | Clean (primary, 2x weight).
+    Clicking Clean runs a dry_run to compute the impact, then opens a
+    confirm dialog echoing the operation and preview numbers. The real
+    destructive call only runs on confirm.
+    """
+    col_target, col_age, col_type, col_keep, col_btn = st.columns([1, 1, 1, 1, 2])
+
+    with col_target:
+        target_label = st.selectbox("Target", list(_TARGET_MAP), key="storage_clean_target")
     with col_age:
-        age_opt = st.selectbox("Delete older than", [">30 days", ">60 days", ">90 days"], key=f"{prefix}_age")
+        age_opt = st.selectbox("Delete older than", list(_AGE_MAP), key="storage_clean_age")
     with col_type:
-        type_opt = st.selectbox("Type", ["All", "Projects only", "Databases only"], key=f"{prefix}_type")
+        type_opt = st.selectbox("Type", list(_TYPE_MAP), key="storage_clean_type")
     with col_keep:
         keep_min = st.number_input(
             "Keep minimum",
             min_value=1,
             max_value=30,
             value=15,
-            key=f"{prefix}_keep",
+            key="storage_clean_keep",
             help="Always keep at least this many recent backups per item",
         )
     with col_btn:
-        st.markdown('<div class="btn-align"></div>', unsafe_allow_html=True)
-        if st.button("Clean", type="primary", use_container_width=True, key=f"{prefix}_clean_btn"):
-            age_map = {">30 days": 30, ">60 days": 60, ">90 days": 90}
-            type_map = {"All": "all", "Projects only": "projects", "Databases only": "databases"}
+        st.write("")  # baseline-align button with the labeled inputs
+        if st.button(
+            "Clean",
+            type="primary",
+            use_container_width=True,
+            key="storage_clean_btn",
+        ):
+            _open_cleanup_confirm(
+                app,
+                target_label=target_label,
+                age_opt=age_opt,
+                type_opt=type_opt,
+                keep_min=int(keep_min),
+            )
 
-            with st.spinner("Cleaning..."):
-                success, message, details = app.backup_cleanup.clean_old_backups(
-                    max_age_days=age_map[age_opt],
-                    backup_type=type_map[type_opt],
-                    keep_minimum=keep_min,
-                    location=location,
-                )
-            if success:
-                if details.get("deleted", 0) > 0:
-                    st.success(message)
-                else:
-                    st.info("Nothing to clean (minimum kept)")
-                invalidate()
-                st.rerun()
-            else:
-                st.error(message)
+
+def _open_cleanup_confirm(
+    app: AppComponents,
+    *,
+    target_label: str,
+    age_opt: str,
+    type_opt: str,
+    keep_min: int,
+) -> None:
+    """Run a dry_run pass to compute the impact, then open a confirm dialog."""
+    max_age = _AGE_MAP[age_opt]
+    backup_type = _TYPE_MAP[type_opt]
+    location = _TARGET_MAP[target_label]
+
+    with st.spinner("Computing impact..."):
+        success, _msg, preview = app.backup_cleanup.clean_old_backups(
+            max_age_days=max_age,
+            backup_type=backup_type,
+            keep_minimum=keep_min,
+            location=location,
+            dry_run=True,
+        )
+
+    if not success:
+        st.error("Could not compute cleanup preview.")
+        return
+
+    will_delete = preview.get("deleted", 0)
+    will_free_mb = preview.get("size_freed_mb", 0)
+
+    if will_delete == 0:
+        st.info("Nothing to clean — no backups match these filters (or all protected by Keep minimum).")
+        return
+
+    def _on_confirm() -> None:
+        with st.spinner(f"Cleaning {target_label}..."):
+            ok, message, _details = app.backup_cleanup.clean_old_backups(
+                max_age_days=max_age,
+                backup_type=backup_type,
+                keep_minimum=keep_min,
+                location=location,
+                dry_run=False,
+            )
+        if ok:
+            st.success(message)
+            invalidate()
+            st.rerun()
+        else:
+            st.error(message)
+
+    warning_body = (
+        f"This will permanently delete **{will_delete}** backup file(s) "
+        f"(~**{will_free_mb:.1f} MB**) from **{target_label}** storage.\n\n"
+        f"• Age: older than {max_age} days\n"
+        f"• Type: {type_opt}\n"
+        f"• Keep minimum: {keep_min} most recent per item\n\n"
+        "This cannot be undone."
+    )
+
+    show_confirm(
+        title="Confirm Cleanup",
+        warning=warning_body,
+        confirm_label=f"Delete {will_delete} file(s)",
+        on_confirm=_on_confirm,
+        key_prefix="storage_clean_dlg",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -195,32 +323,23 @@ def _render_cleanup_controls(app: AppComponents, location: str, prefix: str) -> 
 
 def _render_retention_policy(app: AppComponents) -> None:
     """Retention policy management — surfaces the existing RetentionManager backend."""
-    st.markdown('<div class="section-header">Tiered Retention Policy</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<span style="color:#a1a7b5">Automatically manage backup lifecycle: hourly, daily, weekly, monthly, yearly tiers</span>',
-        unsafe_allow_html=True,
-    )
+    st.caption("Tiered policy: hourly, daily, weekly, monthly, yearly — recent dense, old sparse.")
 
-    # Current tier configuration
     tiers = app.retention.default_tiers
-    st.markdown("**Current Tier Configuration**")
 
+    section("Tier Configuration")
     if PANDAS_AVAILABLE:
-        tier_rows = []
-        for name, cfg in tiers.items():
-            tier_rows.append(
-                {
-                    "Tier": name.capitalize(),
-                    "Keep": cfg["keep"],
-                    "Max Age": _format_tier_age(cfg),
-                }
-            )
+        tier_rows = [
+            {
+                "Tier": name.capitalize(),
+                "Keep": cfg["keep"],
+                "Max Age": _format_tier_age(cfg),
+            }
+            for name, cfg in tiers.items()
+        ]
         st.dataframe(pd.DataFrame(tier_rows), hide_index=True, use_container_width=True)
 
-    st.markdown("---")
-
-    # Retention status
-    st.markdown("**Current Status**")
+    section("Current Status")
     ret_status = get_retention_status(app.retention)
 
     if ret_status["items"]:
@@ -240,23 +359,16 @@ def _render_retention_policy(app: AppComponents) -> None:
     else:
         st.info("No backups found for retention analysis")
 
-    st.markdown("---")
+    st.divider()
+    section("Optimize Storage")
+    st.caption("Preview what would be deleted by applying the retention policy.")
 
-    # Dry-run preview
-    st.markdown("**Optimize Storage**")
-    st.markdown(
-        '<span style="color:#a1a7b5">Preview what would be deleted by applying the retention policy</span>',
-        unsafe_allow_html=True,
-    )
-
-    col1, col2 = st.columns([1, 3])
+    col1, _col2 = st.columns([1, 3])
     with col1:
         if st.button("Preview (Dry Run)", type="primary", use_container_width=True, key="ret_dry_run"):
             with st.spinner("Analyzing..."):
                 results = app.retention.optimize_all_retention(dry_run=True)
             st.session_state.retention_preview = results
-    with col2:
-        pass
 
     if "retention_preview" in st.session_state:
         results = st.session_state.retention_preview
@@ -269,13 +381,13 @@ def _render_retention_policy(app: AppComponents) -> None:
                 unsafe_allow_html=True,
             )
 
-            # Show per-item details
             with st.expander("Details"):
                 for category in ["projects", "databases"]:
                     for name, report in results.get(category, {}).items():
                         if report.get("backups_to_delete", 0) > 0:
                             st.text(
-                                f"{name}: {report['backups_to_delete']} to delete, {report['backups_to_keep']} to keep"
+                                f"{name}: {report['backups_to_delete']} to delete, "
+                                f"{report['backups_to_keep']} to keep"
                             )
 
             if st.button("Apply Retention Policy", type="primary", key="ret_apply"):
@@ -298,12 +410,12 @@ def _format_tier_age(cfg: dict[str, Any]) -> str:
     """Format a tier's max age into a readable string."""
     if "max_age_hours" in cfg:
         return f"{cfg['max_age_hours']} hours"
-    elif "max_age_days" in cfg:
+    if "max_age_days" in cfg:
         return f"{cfg['max_age_days']} days"
-    elif "max_age_weeks" in cfg:
+    if "max_age_weeks" in cfg:
         return f"{cfg['max_age_weeks']} weeks"
-    elif "max_age_months" in cfg:
+    if "max_age_months" in cfg:
         return f"{cfg['max_age_months']} months"
-    elif "max_age_years" in cfg:
+    if "max_age_years" in cfg:
         return f"{cfg['max_age_years']} years"
     return "N/A"

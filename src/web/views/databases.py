@@ -1,44 +1,52 @@
 """Databases page - per-database management, backup/restore."""
 
 import html
-import importlib.util
 from typing import Any
 
 import streamlit as st
 
-PANDAS_AVAILABLE = importlib.util.find_spec("pandas") is not None
-if PANDAS_AVAILABLE:
-    import pandas as pd
-
 from web.cache import get_backup_status, invalidate
-from web.components.data_table import backup_table
-from web.components.empty_state import empty_state
-from web.components.status_badge import (
+from web.components import (
+    Action,
+    Metric,
+    action_bar,
+    backup_table,
+    defaults_expander,
+    empty_state,
     health_label,
     health_level,
+    item_heading,
+    item_picker,
+    metrics_grid,
+    page_header,
+    restore_section,
+    show_confirm,
     status_badge,
     type_badge,
 )
 from web.state import AppComponents
+from web.theme import COLORS
 
 
-def _render_database_defaults(app: AppComponents) -> None:
-    """Render the database defaults expander, absorbed from the old sidebar Settings."""
-    with st.expander("Database Defaults", expanded=False):
-        st.caption("These defaults apply to new database backups unless overridden.")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.text(f"Schedule:  {app.config.get_setting('defaults.database.schedule', 'daily')}")
-        with col2:
-            st.text(f"Retention: {app.config.get_setting('defaults.database.retention_days', 14)}d")
-        with col3:
-            st.text(f"Time:      {app.config.get_setting('defaults.database.time', '03:00')}")
+# ── Entry Point ──────────────────────────────────────────────────────
 
 
 def render_databases(app: AppComponents) -> None:
     """Render the Databases page."""
-    st.markdown('<div class="page-title">Databases</div>', unsafe_allow_html=True)
-    _render_database_defaults(app)
+    page_header(
+        "Databases",
+        "MySQL/MariaDB connections backed up via mysqldump. Passwords encrypt on first save.",
+    )
+
+    defaults_expander(
+        "Database Defaults",
+        "These defaults apply to new database backups unless overridden.",
+        [
+            ("Schedule", app.config.get_setting("defaults.database.schedule", "daily")),
+            ("Retention", f"{app.config.get_setting('defaults.database.retention_days', 14)}d"),
+            ("Time", app.config.get_setting("defaults.database.time", "03:00")),
+        ],
+    )
 
     databases = app.config.get_all_databases()
 
@@ -48,80 +56,30 @@ def render_databases(app: AppComponents) -> None:
             _show_add_database_dialog(app)
         return
 
-    # ── Header Bar ───────────────────────────────────────────────────
+    toolbar_col, _rest = st.columns([2, 4])
+    with toolbar_col:
+        tb1, tb2 = st.columns(2)
+        with tb1:
+            if st.button("+ Add Database", use_container_width=True, key="db_add_btn"):
+                _show_add_database_dialog(app)
+        with tb2:
+            if st.button("Backup All", use_container_width=True, key="db_backup_all"):
+                task_id = app.bg_backup.schedule_backup("all-databases", "all")
+                st.success(f"Started in background ({task_id[:8]}...)")
+
     db_names = list(databases.keys())
+    selected_db = item_picker("Database", db_names, key="db_selector") or db_names[0]
 
-    btn_col1, btn_col2 = st.columns([1, 1])
-    with btn_col1:
-        if st.button("+ Add Database", use_container_width=True, key="db_add_btn"):
-            _show_add_database_dialog(app)
-    with btn_col2:
-        if st.button("Backup All", use_container_width=True, key="db_backup_all"):
-            task_id = app.bg_backup.schedule_backup("all-databases", "all")
-            st.success(f"Started in background ({task_id[:8]}...)")
+    st.divider()
 
-    # Single-click database switcher
-    selected_db = st.segmented_control(
-        "Database",
-        db_names,
-        default=db_names[0],
-        key="db_selector",
-        label_visibility="collapsed",
-    )
-
-    if not selected_db:
-        selected_db = db_names[0]
-
-    st.markdown("---")
-
-    # ── Selected Database View ───────────────────────────────────────
     db_config = databases[selected_db]
     status = get_backup_status(app.backup_engine, "database", selected_db)
 
-    # Row 1: Header
-    info_col, stats_col = st.columns([3, 1])
+    _render_database_header(selected_db, db_config, status)
+    st.divider()
+    _render_database_actions(app, selected_db)
 
-    with info_col:
-        st.markdown(f'<div class="section-header">{html.escape(selected_db)}</div>', unsafe_allow_html=True)
-        badge = type_badge(db_config.get("type", "mysql"), "database")
-        host = html.escape(str(db_config.get('host', 'localhost')))
-        port = html.escape(str(db_config.get('port', 3306)))
-        st.markdown(
-            f"{badge}&nbsp;&nbsp;{host}:{port}",
-            unsafe_allow_html=True,
-        )
-        desc = db_config.get("description", "")
-        if desc:
-            st.markdown(f'<span style="color:#a1a7b5">{html.escape(desc)}</span>', unsafe_allow_html=True)
-
-    with stats_col:
-        if status["exists"] and status.get("backup_count", 0) > 0:
-            level = health_level(status["latest_backup"].get("modified") if status["latest_backup"] else None)
-            st.markdown(status_badge(health_label(level), level), unsafe_allow_html=True)
-            st.metric("Backups", status["backup_count"])
-            st.metric("Size", f"{status.get('total_size_mb', 0):.1f} MB")
-        else:
-            st.markdown(status_badge("No backups", "inactive"), unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Row 2: Action Bar
-    acol1, acol2 = st.columns(2)
-    with acol1:
-        if st.button("Backup Now", type="primary", use_container_width=True, key=f"db_bk_{selected_db}"):
-            with st.spinner(f"Backing up {selected_db}..."):
-                success, message = app.backup_engine.backup_database(selected_db)
-            if success:
-                st.success(message)
-                invalidate()
-                st.rerun()
-            else:
-                st.error(message)
-    with acol2:
-        pass  # Space for future actions
-
-    # Row 3: Content Tabs
-    tab1, tab2 = st.tabs(["Backup History", "Configuration"])
+    tab1, tab2 = st.tabs(["Backups", "Configuration"])
 
     with tab1:
         _render_backup_history(app, selected_db, status)
@@ -130,7 +88,68 @@ def render_databases(app: AppComponents) -> None:
         _render_db_config(db_config)
 
 
-# ── Private Helpers ──────────────────────────────────────────────────
+# ── Header Block ─────────────────────────────────────────────────────
+
+
+def _render_database_header(
+    name: str,
+    db_config: dict[str, Any],
+    status: dict[str, Any],
+) -> None:
+    """Two-column header: info on the left, metrics grid on the right."""
+    info_col, stats_col = st.columns([3, 2])
+
+    with info_col:
+        item_heading(name)
+        badge = type_badge(db_config.get("type", "mysql"), "database")
+        host = html.escape(str(db_config.get("host", "localhost")))
+        port = html.escape(str(db_config.get("port", 3306)))
+        st.markdown(f"{badge}&nbsp;&nbsp;{host}:{port}", unsafe_allow_html=True)
+
+        desc = db_config.get("description", "")
+        if desc:
+            st.markdown(
+                f'<span style="color:{COLORS["text_muted"]}">{html.escape(desc)}</span>',
+                unsafe_allow_html=True,
+            )
+
+    with stats_col:
+        if not (status["exists"] and status.get("backup_count", 0) > 0):
+            st.markdown(status_badge("No backups", "inactive"), unsafe_allow_html=True)
+            return
+
+        latest = status.get("latest_backup") or {}
+        level = health_level(latest.get("modified"))
+        metrics_grid(
+            [
+                Metric("Health", health_label(level), status_level=level),
+                Metric("Backups", status["backup_count"]),
+                Metric("Size", f"{status.get('total_size_mb', 0):.1f} MB"),
+            ],
+            max_columns=3,
+        )
+
+
+# ── Action Bar ───────────────────────────────────────────────────────
+
+
+def _render_database_actions(app: AppComponents, name: str) -> None:
+    """Single primary action: Backup Now."""
+
+    def _backup() -> None:
+        with st.spinner(f"Backing up {name}..."):
+            success, message = app.backup_engine.backup_database(name)
+        if success:
+            st.success(message)
+            invalidate()
+            st.rerun()
+        else:
+            st.error(message)
+
+    action_bar(primary=Action("Backup Now", f"db_bk_{name}", _backup))
+
+
+# ── Backups Tab ──────────────────────────────────────────────────────
 
 
 def _render_backup_history(app: AppComponents, db_name: str, status: dict[str, Any]) -> None:
@@ -142,43 +161,39 @@ def _render_backup_history(app: AppComponents, db_name: str, status: dict[str, A
     all_backups = status.get("all_backups", [])
     backup_table(all_backups, show_type=False, max_rows=10, key_prefix=f"db_bt_{db_name}")
 
-    st.markdown("---")
-
-    st.markdown('<div class="section-header">Restore</div>', unsafe_allow_html=True)
-    restore_col, btn_col = st.columns([3, 1])
-    with restore_col:
-        restore_file = st.selectbox(
-            "Select backup to restore",
-            [b["name"] for b in all_backups],
-            key=f"db_restore_sel_{db_name}",
-            label_visibility="collapsed",
-        )
-    with btn_col:
-        if st.button("Restore", type="primary", use_container_width=True, key=f"db_restore_btn_{db_name}"):
-            _show_restore_dialog(app, db_name, restore_file)
+    restore_section(
+        [b["name"] for b in all_backups],
+        key_prefix=f"db_{db_name}",
+        on_restore=lambda file: _show_restore_dialog(app, db_name, file),
+    )
 
 
-@st.dialog("Confirm Database Restore")
 def _show_restore_dialog(app: AppComponents, db_name: str, backup_name: str) -> None:
     """Database restore confirmation dialog."""
-    st.warning(
-        f"This will replace the current **{db_name}** database with the contents of "
-        f"`{backup_name}`. This cannot be undone."
-    )
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Restore", type="primary", use_container_width=True, key="db_dialog_restore"):
-            with st.spinner("Restoring..."):
-                success, message = app.backup_engine.restore_database(db_name, backup_name)
-            if success:
-                st.success(message)
-                invalidate()
-                st.rerun()
-            else:
-                st.error(message)
-    with col2:
-        if st.button("Cancel", use_container_width=True, key="db_dialog_cancel"):
+
+    def _on_confirm() -> None:
+        with st.spinner("Restoring..."):
+            success, message = app.backup_engine.restore_database(db_name, backup_name)
+        if success:
+            st.success(message)
+            invalidate()
             st.rerun()
+        else:
+            st.error(message)
+
+    show_confirm(
+        title="Confirm Database Restore",
+        warning=(
+            f"This will replace the current **{db_name}** database with the contents of "
+            f"`{backup_name}`. This cannot be undone."
+        ),
+        confirm_label="Restore",
+        on_confirm=_on_confirm,
+        key_prefix="db_restore_dlg",
+    )
+
+
+# ── Configuration Tab ────────────────────────────────────────────────
 
 
 def _render_db_config(db_config: dict[str, Any]) -> None:
@@ -186,7 +201,7 @@ def _render_db_config(db_config: dict[str, Any]) -> None:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**Schedule Settings**")
+        st.markdown("**Schedule**")
         backup_cfg = db_config.get("backup", {})
         st.text(f"Enabled:    {'Yes' if backup_cfg.get('enabled', True) else 'No'}")
         st.text(f"Schedule:   {backup_cfg.get('schedule', 'daily')}")
@@ -202,6 +217,9 @@ def _render_db_config(db_config: dict[str, Any]) -> None:
                 st.code(option, language=None)
         else:
             st.text("Using default mysqldump options")
+
+
+# ── Add Dialog ───────────────────────────────────────────────────────
 
 
 @st.dialog("Add Database")

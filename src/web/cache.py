@@ -103,6 +103,13 @@ def get_git_status(_git_manager: Any, path: str) -> dict[str, Any]:
     return cast("dict[str, Any]", _git_manager.get_repo_status(path))
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def is_git_repo(_git_manager: Any, path: str) -> bool:
+    """Whether ``path`` is a git working tree. Instantiates a Repo() — walks
+    .git/, reads config and refs — so worth caching across reruns."""
+    return cast("bool", _git_manager.is_git_repo(path))
+
+
 # ── Log Parsing ──────────────────────────────────────────────────────
 
 

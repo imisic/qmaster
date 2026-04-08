@@ -22,7 +22,7 @@ def _get_sanitizer() -> TextSanitizer:
     return _sanitizer
 
 
-def render_text_sanitizer(app: AppComponents | None = None) -> None:
+def _render_text_sanitizer(app: AppComponents | None = None) -> None:
     """Render the Text Sanitizer tool body. Title is rendered by the parent Tools page."""
     if not PHONENUMBERS_AVAILABLE:
         st.warning(
@@ -31,12 +31,15 @@ def render_text_sanitizer(app: AppComponents | None = None) -> None:
         )
 
     # ── Mode toggle ──────────────────────────────────────────────
-    mode = st.radio(
+    mode = st.segmented_control(
         "Mode",
         ["Sanitize", "Unsanitize", "Lookup"],
-        horizontal=True,
+        default="Sanitize",
+        key="text_sanitizer_mode",
         label_visibility="collapsed",
     )
+    if not mode:
+        mode = "Sanitize"
 
     if mode == "Sanitize":
         _render_sanitize()

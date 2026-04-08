@@ -23,7 +23,7 @@ def _get_scraper() -> WebScraper:
     return _scraper
 
 
-def render_web_scraper(app: AppComponents | None = None) -> None:
+def _render_web_scraper(app: AppComponents | None = None) -> None:
     """Render the Web Scraper tool body. Title is rendered by the parent Tools page."""
     # ── URL input ────────────────────────────────────────────────────
     url_input = st.text_area(
@@ -34,12 +34,15 @@ def render_web_scraper(app: AppComponents | None = None) -> None:
     )
 
     # ── Mode selection ───────────────────────────────────────────────
-    mode = st.radio(
+    mode = st.segmented_control(
         "Scrape mode",
         ["Listed URLs only", "Crawl domain"],
-        horizontal=True,
+        default="Listed URLs only",
+        key="web_scraper_mode",
         label_visibility="collapsed",
     )
+    if not mode:
+        mode = "Listed URLs only"
 
     # ── JS rendering ────────────────────────────────────────────────
     js_options = ["Auto-detect", "Always", "Never"]

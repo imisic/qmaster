@@ -1,7 +1,8 @@
-"""Logs & Diagnostics page - merges Backup Logs, Apache Logs, and Activity Feed."""
+"""Logs & Diagnostics page - Apache errors, backup log, and activity feed."""
 
 import logging
 import os
+from collections import deque
 from typing import Any
 
 import streamlit as st
@@ -22,43 +23,37 @@ except ImportError:
     PLOTLY_AVAILABLE = False
 
 from web.cache import get_log_stats, get_recent_activity, invalidate
-from web.components.data_table import relative_time
-from web.components.empty_state import empty_state
-from web.components.status_badge import status_badge
+from web.components import (
+    Metric,
+    empty_state,
+    metrics_grid,
+    page_header,
+    relative_time,
+    section,
+    show_confirm,
+    status_badge,
+)
 from web.state import AppComponents
 
 
 def render_logs_diagnostics(app: AppComponents) -> None:
     """Render the Logs & Diagnostics page."""
-    st.markdown('<div class="page-title">Logs</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="page-subtitle">View backup logs, Apache errors, and activity history</div>', unsafe_allow_html=True
+    page_header("Logs", "View backup logs, Apache errors, and activity history")
+
+    tab_apache, tab_backup, tab_activity = st.tabs(
+        ["Apache Errors", "Backup Log", "Activity Feed"]
     )
 
-    view_options = ["Apache Errors", "Backup Log", "Activity Feed"]
-    selected_view = st.segmented_control(
-        "View",
-        view_options,
-        default="Apache Errors",
-        key="logs_view_selector",
-        label_visibility="collapsed",
-    )
-
-    if not selected_view:
-        selected_view = "Apache Errors"
-
-    st.markdown("---")
-
-    if selected_view == "Apache Errors":
+    with tab_apache:
         _render_apache_logs(app)
-    elif selected_view == "Backup Log":
+    with tab_backup:
         _render_backup_log(app)
-    elif selected_view == "Activity Feed":
+    with tab_activity:
         _render_activity_feed(app)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Tab 1: Backup Log
+# Backup Log
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -70,217 +65,222 @@ def _render_backup_log(app: AppComponents) -> None:
         empty_state("No log file found", "Logs will appear after the first backup operation")
         return
 
-    # Controls
     ctrl1, ctrl2, ctrl3 = st.columns([2, 1, 1])
     with ctrl1:
         lines_to_show = st.slider("Lines to show", 10, 500, 100, key="log_lines")
     with ctrl2:
-        filter_level = st.selectbox("Level filter", ["All", "INFO", "WARNING", "ERROR"], key="log_level")
+        filter_level = st.selectbox(
+            "Level",
+            ["All", "INFO", "WARNING", "ERROR"],
+            key="log_level",
+        )
     with ctrl3:
         if st.button("Refresh", use_container_width=True, key="log_refresh"):
             invalidate()
             st.rerun()
 
-    # Read log
     try:
         with open(log_file, encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+            recent_lines = list(deque(f, maxlen=lines_to_show))
     except (OSError, PermissionError) as e:
         st.error(f"Cannot read log file: {e}")
         return
 
-    recent_lines = lines[-lines_to_show:] if len(lines) > lines_to_show else lines
+    if not recent_lines:
+        empty_state("Log file is empty", "Logs will appear after the first backup operation")
+        return
 
-    # Filter
     filtered = [line for line in recent_lines if filter_level == "All" or filter_level in line]
-
-    # Display (st.code for read-only, not st.text_area)
     st.code("".join(filtered), language="log")
 
-    # Stats
-    st.markdown("---")
-    st.markdown('<div class="section-header">Log Statistics</div>', unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        info_count = sum(1 for line in lines if "INFO" in line)
-        st.metric("Info", info_count)
-    with col2:
-        warning_count = sum(1 for line in lines if "WARNING" in line)
-        st.metric("Warnings", warning_count)
-    with col3:
-        error_count = sum(1 for line in lines if "ERROR" in line)
-        st.metric("Errors", error_count)
+    info_count = sum(1 for line in recent_lines if "INFO" in line)
+    warning_count = sum(1 for line in recent_lines if "WARNING" in line)
+    error_count = sum(1 for line in recent_lines if "ERROR" in line)
+    st.caption(
+        f"Last **{len(recent_lines)}** lines  ·  "
+        f"**{info_count}** info  ·  "
+        f"**{warning_count}** warnings  ·  "
+        f"**{error_count}** errors"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Tab 2: Apache Errors
+# Apache Errors (flat single view with inline filters)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 def _render_apache_logs(app: AppComponents) -> None:
-    """Apache error log viewer."""
+    """Apache error log viewer — flat layout with inline filter bar."""
     detected_logs = app.apache_parser.log_paths
 
     if not detected_logs:
-        st.warning("No Apache log files detected.")
-        default_log_path = app.config.get_setting("apache.log_paths", ["/var/log/apache2/error.log"])
-        custom_path = st.text_input(
-            "Enter Apache error log path:", value=default_log_path[0] if default_log_path else "", key="apache_custom"
-        )
-        if custom_path and st.button("Add Custom Log Path", key="apache_add_custom"):
-            resolved = os.path.realpath(custom_path)
-            if not any(resolved.startswith(d) for d in app.apache_parser._allowed_log_dirs):
-                st.error("Path is outside allowed log directories.")
-            elif not os.path.exists(resolved):
-                st.error("File does not exist.")
-            else:
-                app.apache_parser.log_paths.append(resolved)
-                st.success(f"Added: {resolved}")
-                invalidate()
-                st.rerun()
+        _render_apache_no_logs(app)
         return
 
-    # Header
+    # ── Top bar: log selector + actions ──────────────────────────────
     h1, h2, h3 = st.columns([3, 1, 1])
     with h1:
         selected_log = st.selectbox("Log File", detected_logs, key="apache_log_sel")
     with h2:
-        if st.button("Refresh", type="primary", use_container_width=True, key="apache_refresh"):
+        if st.button("Refresh", use_container_width=True, key="apache_refresh"):
             invalidate()
             st.rerun()
     with h3:
         if st.button("Clear Log", use_container_width=True, key="apache_clear"):
-            _show_clear_log_dialog(app, selected_log)
+            _open_clear_log_dialog(app, selected_log)
 
     if not selected_log:
         return
 
     stats = get_log_stats(app.apache_parser, selected_log)
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("File Size", f"{stats['size_mb']:.2f} MB")
-    with col2:
-        st.metric("Total Lines", stats["line_count"])
-    with col3:
-        st.metric("Errors", stats["error_count"])
-    with col4:
-        st.metric("Warnings", stats["warning_count"])
+    # Empty-state for empty files instead of a row of zero metrics
+    if not stats.get("exists") or stats.get("line_count", 0) == 0:
+        empty_state(
+            "No log entries found",
+            f"{selected_log} has no readable content",
+        )
+        return
 
-    st.markdown("---")
+    metrics_grid(
+        [
+            Metric("File Size", f"{stats['size_mb']:.2f} MB"),
+            Metric("Total Lines", stats["line_count"]),
+            Metric("Errors", stats["error_count"]),
+            Metric("Warnings", stats["warning_count"]),
+        ],
+    )
 
-    # Sub-tabs for Apache functionality
-    atab1, atab2, atab3, atab4 = st.tabs(["View Logs", "Search & Filter", "Statistics", "Export"])
+    st.divider()
 
-    with atab1:
-        _render_apache_view(app, selected_log)
+    # ── Filter bar (single row) ──────────────────────────────────────
+    f1, f2, f3, f4 = st.columns([1, 2, 1, 1])
+    with f1:
+        severity = st.selectbox(
+            "Severity",
+            ["All", "error", "warn", "notice", "info", "debug"],
+            key="apache_sev_filter",
+        )
+    with f2:
+        search_term = st.text_input(
+            "Search",
+            key="apache_search_term",
+            placeholder="Filter messages...",
+        )
+    with f3:
+        view_mode = st.selectbox(
+            "Mode",
+            ["Tail", "Parse"],
+            key="apache_view_mode",
+            help="Tail = raw tail of recent lines. Parse = structured entries with filters.",
+        )
+    with f4:
+        line_count = st.number_input(
+            "Lines",
+            min_value=10,
+            max_value=2000,
+            value=100,
+            step=10,
+            key="apache_line_count",
+        )
 
-    with atab2:
-        _render_apache_search(app, selected_log)
-
-    with atab3:
-        _render_apache_stats(app, selected_log, stats)
-
-    with atab4:
-        _render_apache_export(app, selected_log)
-
-
-@st.dialog("Confirm Clear Log")
-def _show_clear_log_dialog(app: AppComponents, log_path: str) -> None:
-    """Confirm log clearing."""
-    st.warning(f"This will clear the contents of `{log_path}`. This cannot be undone.")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<div class="danger-btn">', unsafe_allow_html=True)
-        if st.button("Clear", use_container_width=True, key="apache_clear_confirm"):
-            success, message = app.apache_parser.clear_log(log_path)
-            if success:
-                st.success(message)
-                invalidate()
-                st.rerun()
-            else:
-                st.error(message)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with col2:
-        if st.button("Cancel", use_container_width=True, key="apache_clear_cancel"):
-            st.rerun()
-
-
-def _render_apache_view(app: AppComponents, selected_log: str) -> None:
-    """Apache log viewer sub-tab."""
-    view_mode = st.radio("View Mode", ["Tail (Latest)", "Full Parse"], horizontal=True, key="apache_view_mode")
-
-    if view_mode == "Tail (Latest)":
-        lines_to_show = st.slider("Number of lines", 10, 100, 50, key="apache_tail_lines")
-        tail_lines = app.apache_parser.tail_log(selected_log, lines_to_show)
+    # ── Output ───────────────────────────────────────────────────────
+    if view_mode == "Tail" and severity == "All" and not search_term:
+        tail_lines = app.apache_parser.tail_log(selected_log, int(line_count))
         if tail_lines:
             st.code("\n".join(tail_lines), language="log")
         else:
             empty_state("No log entries found")
     else:
-        lines_to_parse = st.slider("Lines to parse (0 for all)", 0, 1000, 100, key="apache_parse_lines")
-        logs = app.apache_parser.read_logs(selected_log, lines=lines_to_parse)
-
-        if logs:
-            for log in reversed(logs[-50:]):
-                severity = log.get("severity", "info")
-                level = "error" if severity == "error" else "warning" if severity in ("warn", "warning") else "healthy"
-                badge = status_badge(severity.upper(), level)
-
-                with st.expander(f"{log.get('timestamp', 'N/A')} — {severity.upper()}"):
-                    st.markdown(badge, unsafe_allow_html=True)
-                    st.text(f"Message: {log.get('message', log.get('raw', ''))}")
-                    if log.get("client"):
-                        st.text(f"Client: {log['client']}")
-                    if log.get("module"):
-                        st.text(f"Module: {log['module']}")
-                    st.code(log.get("raw", ""), language="log")
-        else:
-            empty_state("No log entries found")
-
-
-def _render_apache_search(app: AppComponents, selected_log: str) -> None:
-    """Apache search & filter sub-tab."""
-    col1, col2 = st.columns(2)
-    with col1:
-        severity_filter = st.selectbox(
-            "Severity",
-            ["All", "error", "warn", "notice", "info", "debug"],
-            key="apache_sev_filter",
-        )
-        search_term = st.text_input("Search term", key="apache_search_term")
-    with col2:
-        lines_to_search = st.number_input("Lines to search", min_value=0, value=500, key="apache_search_lines")
-
-    if st.button("Search", key="apache_search_btn"):
-        severity = None if severity_filter == "All" else severity_filter
-        search = search_term if search_term else None
-
-        with st.spinner("Searching..."):
-            filtered_logs = app.apache_parser.read_logs(
+        sev_filter = None if severity == "All" else severity
+        search = search_term or None
+        with st.spinner("Parsing..."):
+            logs = app.apache_parser.read_logs(
                 selected_log,
-                lines=lines_to_search,
-                severity_filter=severity,
+                lines=int(line_count),
+                severity_filter=sev_filter,
                 search_term=search,
             )
 
-        if filtered_logs:
-            st.success(f"Found {len(filtered_logs)} matching entries")
-            for log in reversed(filtered_logs[-50:]):
-                severity = log.get("severity", "info")
-                level = "error" if severity == "error" else "warning" if severity in ("warn", "warning") else "healthy"
-
-                with st.expander(f"{log.get('timestamp', 'N/A')} — {severity.upper()}"):
-                    st.markdown(status_badge(severity.upper(), level), unsafe_allow_html=True)
-                    st.text(f"Message: {log.get('message', log.get('raw', ''))}")
-                    st.code(log.get("raw", ""), language="log")
+        if not logs:
+            empty_state("No matching entries", "Try a broader filter or longer line count")
         else:
-            st.info("No matching entries found")
+            st.caption(f"Showing latest {min(50, len(logs))} of {len(logs)} matches")
+            for log in reversed(logs[-50:]):
+                _render_apache_log_entry(log)
+
+    # ── Statistics + Export expanders (secondary) ────────────────────
+    with st.expander("Statistics"):
+        _render_apache_stats(app, selected_log, stats)
+
+    with st.expander("Export"):
+        _render_apache_export(app, selected_log)
+
+
+def _render_apache_no_logs(app: AppComponents) -> None:
+    """Shown when no Apache log file is detected."""
+    st.warning("No Apache log files detected.")
+    default_log_path = app.config.get_setting("apache.log_paths", ["/var/log/apache2/error.log"])
+    custom_path = st.text_input(
+        "Enter Apache error log path:",
+        value=default_log_path[0] if default_log_path else "",
+        key="apache_custom",
+    )
+    if custom_path and st.button("Add Custom Log Path", key="apache_add_custom"):
+        resolved = os.path.realpath(custom_path)
+        if not any(resolved.startswith(d) for d in app.apache_parser._allowed_log_dirs):
+            st.error("Path is outside allowed log directories.")
+        elif not os.path.exists(resolved):
+            st.error("File does not exist.")
+        else:
+            app.apache_parser.log_paths.append(resolved)
+            st.success(f"Added: {resolved}")
+            invalidate()
+            st.rerun()
+
+
+def _render_apache_log_entry(log: dict[str, Any]) -> None:
+    """Render one parsed Apache log entry as an expandable row."""
+    severity = log.get("severity", "info")
+    level = (
+        "error" if severity == "error"
+        else "warning" if severity in ("warn", "warning")
+        else "healthy"
+    )
+
+    with st.expander(f"{log.get('timestamp', 'N/A')} — {severity.upper()}"):
+        st.markdown(status_badge(severity.upper(), level), unsafe_allow_html=True)
+        st.text(f"Message: {log.get('message', log.get('raw', ''))}")
+        if log.get("client"):
+            st.text(f"Client: {log['client']}")
+        if log.get("module"):
+            st.text(f"Module: {log['module']}")
+        st.code(log.get("raw", ""), language="log")
+
+
+def _open_clear_log_dialog(app: AppComponents, log_path: str) -> None:
+    """Confirm log clearing."""
+
+    def _on_confirm() -> None:
+        success, message = app.apache_parser.clear_log(log_path)
+        if success:
+            st.success(message)
+            invalidate()
+            st.rerun()
+        else:
+            st.error(message)
+
+    show_confirm(
+        title="Confirm Clear Log",
+        warning=f"This will clear the contents of `{log_path}`. This cannot be undone.",
+        confirm_label="Clear",
+        on_confirm=_on_confirm,
+        key_prefix="apache_clear_dlg",
+    )
 
 
 def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str, Any]) -> None:
-    """Apache statistics sub-tab."""
+    """Apache statistics — severity distribution + hourly histogram + top errors."""
     if not stats.get("exists") or not stats.get("readable"):
         st.error("Cannot read log file for statistics")
         return
@@ -297,7 +297,6 @@ def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str,
     for log in all_logs:
         sev = log.get("severity", "unknown")
         severity_counts[sev] = severity_counts.get(sev, 0) + 1
-
         try:
             ts = log.get("timestamp", "")
             if "T" in ts:
@@ -306,7 +305,6 @@ def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str,
         except (ValueError, IndexError, TypeError) as e:
             logging.debug("Skipped unparseable timestamp: %s", e)
             continue
-
         if sev == "error":
             msg = log.get("message", log.get("raw", ""))[:100]
             error_messages[msg] = error_messages.get(msg, 0) + 1
@@ -317,7 +315,7 @@ def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str,
         st.markdown("**Severity Distribution**")
         if severity_counts and PLOTLY_AVAILABLE and PANDAS_AVAILABLE:
             df_sev = pd.DataFrame(list(severity_counts.items()), columns=["Severity", "Count"])
-            fig = px.pie(df_sev, values="Count", names="Severity", title="Log Entries by Severity")
+            fig = px.pie(df_sev, values="Count", names="Severity")
             st.plotly_chart(fig, use_container_width=True)
         elif severity_counts:
             for sev, count in severity_counts.items():
@@ -329,14 +327,13 @@ def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str,
             hours = sorted(hourly_counts.keys())
             counts = [hourly_counts[h] for h in hours]
             fig = go.Figure(data=[go.Bar(x=hours, y=counts)])
-            fig.update_layout(title="Log Entries by Hour", xaxis_title="Hour", yaxis_title="Count")
+            fig.update_layout(xaxis_title="Hour", yaxis_title="Count")
             st.plotly_chart(fig, use_container_width=True)
         elif hourly_counts:
             for h, c in sorted(hourly_counts.items()):
                 st.text(f"Hour {h}: {c}")
 
-    st.markdown("---")
-    st.markdown("**Top Error Messages**")
+    section("Top Error Messages")
     if error_messages and PANDAS_AVAILABLE:
         top_errors = sorted(error_messages.items(), key=lambda x: x[1], reverse=True)[:10]
         df_err = pd.DataFrame(top_errors, columns=["Error Message", "Count"])
@@ -349,7 +346,7 @@ def _render_apache_stats(app: AppComponents, selected_log: str, stats: dict[str,
 
 
 def _render_apache_export(app: AppComponents, selected_log: str) -> None:
-    """Apache log export sub-tab."""
+    """Apache log export."""
     col1, col2 = st.columns(2)
     with col1:
         export_format = st.selectbox("Export Format", ["json", "csv", "txt"], key="apache_export_fmt")
@@ -365,7 +362,7 @@ def _render_apache_export(app: AppComponents, selected_log: str) -> None:
             )
 
         if success:
-            file_path = message  # export_logs returns the file path on success
+            file_path = message
             st.success(f"Logs exported to {file_path}")
             try:
                 if os.path.exists(file_path):
@@ -384,12 +381,12 @@ def _render_apache_export(app: AppComponents, selected_log: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Tab 3: Activity Feed
+# Activity Feed
 # ═══════════════════════════════════════════════════════════════════════
 
 
 def _render_activity_feed(app: AppComponents) -> None:
-    """Recent backup activity feed (moved from Dashboard)."""
+    """Recent backup activity feed."""
     recent = get_recent_activity(app.visualizer, 15)
 
     if not recent:
@@ -402,7 +399,6 @@ def _render_activity_feed(app: AppComponents) -> None:
         backup_type = activity.get("backup_type", "full")
         importance = activity.get("importance", "normal")
 
-        # Badges
         type_level = "info" if item_type == "project" else "inactive"
         type_label = item_type.capitalize()
 

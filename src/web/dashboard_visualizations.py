@@ -99,11 +99,9 @@ class DashboardVisualizer:
         if not data:
             return None
 
-        # Create DataFrame and timeline chart
         df = pd.DataFrame(data)
         df = df.sort_values("timestamp")
 
-        # Create interactive timeline with color coding
         fig = px.scatter(
             df,
             x="timestamp",
@@ -111,13 +109,17 @@ class DashboardVisualizer:
             color="type",
             size="size_mb",
             hover_data=["backup_type", "importance", "size_mb"],
-            title=f"Backup Timeline (Last {days} Days)",
             labels={"timestamp": "Date", "item": "Item Name", "size_mb": "Size (MB)"},
             color_discrete_map={"project": "#1f77b4", "database": "#ff7f0e"},
         )
 
         fig.update_layout(
-            height=400, xaxis_title="Date", yaxis_title="Backup Item", hovermode="closest", showlegend=True
+            height=400,
+            xaxis_title="Date",
+            yaxis_title="Backup Item",
+            hovermode="closest",
+            showlegend=True,
+            margin=dict(t=20, r=10, b=40, l=10),
         )
 
         return fig

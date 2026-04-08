@@ -43,15 +43,18 @@ def _read_uploaded_file(uploaded) -> str | None:
     return None
 
 
-def render_html_cleaner(app: AppComponents | None = None) -> None:
+def _render_html_cleaner(app: AppComponents | None = None) -> None:
     """Render the HTML Cleaner tool body. Title is rendered by the parent Tools page."""
     # ── Input source ────────────────────────────────────────────────
-    input_method = st.radio(
+    input_method = st.segmented_control(
         "Input method",
         ["Paste HTML", "Upload File"],
-        horizontal=True,
+        default="Paste HTML",
+        key="html_cleaner_input_method",
         label_visibility="collapsed",
     )
+    if not input_method:
+        input_method = "Paste HTML"
 
     if input_method == "Paste HTML":
         html_input = st.text_area(

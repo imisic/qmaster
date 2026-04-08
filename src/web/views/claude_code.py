@@ -13,6 +13,15 @@ from web.cache import (
     invalidate,
     list_session_projects,
 )
+from web.components import (
+    Metric,
+    block_heading,
+    empty_state,
+    metrics_grid,
+    page_header,
+    section,
+    show_confirm,
+)
 from web.components.action_bar import danger_button
 from web.state import AppComponents
 from web.views.claude_code_cleanup import (
@@ -22,11 +31,10 @@ from web.views.claude_code_cleanup import (
 
 
 def render_claude_code(app: AppComponents) -> None:
-    """Render the Claude Code page."""
-    st.markdown('<div class="page-title">Claude Cleanup</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="page-subtitle">Inspect and manage everything Claude Code stores under ~/.claude/</div>',
-        unsafe_allow_html=True,
+    """Render the Claude Cleanup page."""
+    page_header(
+        "Claude Cleanup",
+        "Inspect and manage everything Claude Code stores under ~/.claude/",
     )
 
     claude_stats = get_claude_stats(app.claude_config)
@@ -36,24 +44,22 @@ def render_claude_code(app: AppComponents) -> None:
         st.warning("Claude configuration directory not found at ~/.claude/")
         return
 
-    # Top metrics
     accounting = get_token_accounting(app.claude_config)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Size", f"{claude_stats['total_size_mb']} MB")
-    with col2:
-        st.metric("Projects", accounting["project_count"])
-    with col3:
-        st.metric("Sessions", accounting["session_count"])
-    with col4:
-        ratio = accounting["hidden_ratio"] * 100
-        st.metric(
-            "Hidden Data",
-            f"{ratio:.0f}%",
-            help="Subagent and memory bytes as a share of total session data",
-        )
+    ratio = accounting["hidden_ratio"] * 100
+    metrics_grid(
+        [
+            Metric("Total Size", f"{claude_stats['total_size_mb']} MB"),
+            Metric("Projects", accounting["project_count"]),
+            Metric("Sessions", accounting["session_count"]),
+            Metric(
+                "Hidden Data",
+                f"{ratio:.0f}%",
+                help="Subagent and memory bytes as a share of total session data",
+            ),
+        ],
+    )
 
-    st.markdown("---")
+    st.divider()
 
     tab1, tab2, tab3, tab4 = st.tabs(["Sessions", "Config Cleanup", "Project History", "MCP Servers"])
     with tab1:
@@ -73,33 +79,23 @@ def render_claude_code(app: AppComponents) -> None:
 
 def _render_sessions_tab(app: AppComponents, accounting: dict[str, Any]) -> None:
     """Read-only inspector for Claude Code sessions, subagents, and memory."""
-    st.markdown('<div class="section-header">Data Accounting</div>', unsafe_allow_html=True)
-
     visible_mb = accounting["visible_bytes"] / (1024 * 1024)
     hidden_mb = accounting["hidden_bytes"] / (1024 * 1024)
     multiplier = accounting["data_multiplier"]
-
-    mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-    with mcol1:
-        st.metric("Visible (transcripts)", f"{visible_mb:.1f} MB")
-    with mcol2:
-        st.metric("Hidden (subagents/memory)", f"{hidden_mb:.1f} MB")
-    with mcol3:
-        st.metric("Data Multiplier", f"{multiplier:.2f}x" if multiplier else "—")
-    with mcol4:
-        st.metric("Compactions", accounting["compaction_count"])
+    multiplier_str = f"{multiplier:.2f}x" if multiplier else "—"
 
     st.caption(
-        "Bytes on disk, not real tokens. Visible = primary session JSONL files. "
-        "Hidden = subagents/, sidechains, compaction logs, and memory files."
+        f"Visible transcripts: **{visible_mb:.1f} MB**  ·  "
+        f"Hidden subagents/memory: **{hidden_mb:.1f} MB**  ·  "
+        f"Multiplier: **{multiplier_str}**  ·  "
+        f"Compactions: **{accounting['compaction_count']}**"
     )
 
-    st.markdown("---")
-    st.markdown('<div class="section-header">Projects by Data Volume</div>', unsafe_allow_html=True)
+    block_heading("Projects by data volume")
 
     projects = list_session_projects(app.claude_config)
     if not projects:
-        st.info("No projects found under ~/.claude/projects/")
+        empty_state("No projects found under ~/.claude/projects/")
         return
 
     top = projects[:25]
@@ -111,7 +107,7 @@ def _render_sessions_tab(app: AppComponents, accounting: dict[str, Any]) -> None
     if len(projects) > 25:
         st.caption(f"Showing top 25 of {len(projects)} projects.")
 
-    st.markdown("---")
+    st.divider()
     with st.expander("System Reminder Scan"):
         st.caption(
             "Counts injected `system-reminder` blocks containing the 'NEVER mention' signature "
@@ -220,17 +216,10 @@ def _render_mcp_tab(app: AppComponents) -> None:
                                 st.text(f"  {key}={sval}")
                 with col2:
                     if danger_button("Delete", key=f"mcp_del_{server['name']}"):
-                        with st.spinner(f"Deleting {server['name']}..."):
-                            ok, err = app.claude_config.delete_mcp_server(server["name"])
-                        if ok:
-                            st.success(f"Deleted {server['name']}")
-                            invalidate()
-                            st.rerun()
-                        else:
-                            st.error(err)
+                        _open_mcp_delete_confirm(app, server["name"])
 
-    st.markdown("---")
-    st.markdown('<div class="section-header">Add MCP Server</div>', unsafe_allow_html=True)
+    st.divider()
+    section("Add MCP Server")
 
     with st.form("add_mcp_server_form"):
         fcol1, fcol2 = st.columns(2)
@@ -259,3 +248,28 @@ def _render_mcp_tab(app: AppComponents) -> None:
                     st.error(err)
             else:
                 st.error("Server name and command are required")
+
+
+def _open_mcp_delete_confirm(app: AppComponents, server_name: str) -> None:
+    """Confirm dialog before removing an MCP server config."""
+
+    def _on_confirm() -> None:
+        with st.spinner(f"Deleting {server_name}..."):
+            ok, err = app.claude_config.delete_mcp_server(server_name)
+        if ok:
+            st.success(f"Deleted {server_name}")
+            invalidate()
+            st.rerun()
+        else:
+            st.error(err)
+
+    show_confirm(
+        title="Confirm MCP Server Delete",
+        warning=(
+            f"This will remove the **{server_name}** MCP server from your Claude Code config. "
+            "You'll need to re-add it manually if you want it back."
+        ),
+        confirm_label="Delete",
+        on_confirm=_on_confirm,
+        key_prefix=f"mcp_del_dlg_{server_name}",
+    )
