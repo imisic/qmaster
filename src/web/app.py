@@ -13,7 +13,7 @@ from web.state import init_app_state
 from web.theme import apply_theme
 from web.views import PAGE_MAP
 
-APP_VERSION = "2.0"
+APP_VERSION = "2.0.1"
 
 # ── Page Config ──────────────────────────────────────────────────────
 st.set_page_config(
