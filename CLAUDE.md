@@ -134,16 +134,18 @@ Secondary sync uses checksum comparison to skip unchanged files.
 
 ## Web Dashboard Pages
 
-- **Dashboard**: Overview, quick actions, analytics charts
-- **Projects**: Per-project management, git history, backup/restore
-- **Databases**: Database backup management
-- **Backup Cleanup**: Age-based cleanup for local and sync storage
-- **Claude Config**: Claude Code directory cleanup
-- **Apache Logs**: Log viewer with search, stats, export
-- **HTML Cleaner**: Clean and sanitize HTML content
-- **Web Scraper**: Scrape and extract web page content
-- **Settings**: Add projects/databases, view global settings
-- **Scheduler**: View scheduled backups, cron setup
+Sidebar nav is defined in `src/web/app.py::SIDEBAR_NAV`. Views live in `src/web/views/` and must be registered in `src/web/views/__init__.py::PAGE_MAP`.
+
+**Backups section:**
+- **Dashboard**: Overview, quick actions, analytics charts, recent backups, timeline
+- **Projects**: Per-project management, git history, backup/restore, file preview
+- **Databases**: Database backup/restore management
+- **Storage & Retention**: Storage analytics, age-based cleanup for local and sync storage, retention tiers
+
+**Utilities section:**
+- **Claude Cleanup**: Claude Code `.claude` directory scanning and cleanup (Sessions / Config Dump / Project History / MCP Servers tabs)
+- **Logs**: Apache and PHP log viewer with search, severity filtering, stats, export
+- **Tools**: HTML Cleaner, Web Scraper, and Text Sanitizer as tabs under one page
 
 ## Coding Rules (`.claude/rules/`)
 

@@ -27,13 +27,7 @@ The name? I wanted something that handles the maintenance stuff I keep putting o
 
 **Claude Code cleanup** - Scans your projects for `.claude` directories, shows you what's eating space, lets you clean by category or blow it all away. I built this after noticing 500+ MB of stale Claude data scattered around.
 
-![Claude Config Cleanup](docs/screenshots/storage-claude-config.png)
-
-**HTML cleaner** - Paste or upload HTML, pick an output format: Markdown, structural HTML (classes and IDs but no style garbage), minimal HTML (barely any attributes), or plain text. Mostly use this before feeding content to AI or cleaning up docs.
-
-**Web scraper** - Give it URLs and it fetches the pages, strips the cruft, and gives you clean Markdown. Can crawl an entire domain with depth limits, or just scrape a list of specific URLs. Optionally uses Playwright for JS-rendered pages that come back empty with plain requests.
-
-**Text sanitizer** - Strips phone numbers, emails, and other personal info from text before you paste it into AI or share it publicly. You can unsanitize later to put the originals back.
+**Tools** - A grab-bag tab: HTML cleaner (HTML → Markdown, structural HTML, minimal HTML, or plain text), web scraper (URLs → clean Markdown, optional Playwright for JS-rendered pages, domain crawl with depth limits), and text sanitizer (strip phones/emails/PII before sharing, unsanitize to restore).
 
 **The rest:**
 - Incremental and full tar.gz project archives
@@ -156,20 +150,11 @@ Needs: Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-r
 <details>
 <summary>More screenshots</summary>
 
-### Projects
-![Projects](docs/screenshots/projects.png)
+### Claude Cleanup
+![Claude Cleanup](docs/screenshots/claude-cleanup.png)
 
-### Databases
-![Databases](docs/screenshots/databases.png)
-
-### Storage & Cleanup
-![Storage & Cleanup](docs/screenshots/storage-cleanup.png)
-
-### Claude Code
-![Claude Code](docs/screenshots/storage-claude-config.png)
-
-### Logs & Diagnostics
-![Logs & Diagnostics](docs/screenshots/logs-diagnostics.png)
+### Tools
+![Tools](docs/screenshots/tools.png)
 
 </details>
 
