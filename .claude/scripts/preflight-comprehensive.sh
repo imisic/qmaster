@@ -348,6 +348,14 @@ for pyfile in find_py_files(SRC_DIR):
             if any(kw in pre_lines for kw in ["unlink", "remove", "rmdir"]):
                 is_cleanup = True
 
+        # Whitelist: FileNotFoundError after stat/is_file/is_dir/rglob in scanning loops
+        if "FileNotFoundError" in except_text:
+            pre_lines = "".join(lines[max(0, i - 5):i])
+            file_scan_ops = ["stat()", "is_file()", "is_dir()", "rglob(",
+                             "glob(", "unlink()", "rmtree(", "remove("]
+            if any(op in pre_lines for op in file_scan_ops):
+                is_cleanup = True
+
         if not is_cleanup:
             exc03_locs.append(f"{rpath}:{i + 1}")
 
@@ -516,6 +524,55 @@ if os.path.isdir(web_dir):
 
 make_result("WEB-07", "warn" if web07_locs else "pass", len(web07_locs), web07_locs,
             f"Orphan st.rerun() (no state mutation or invalidate): {len(web07_locs)} found")
+
+# WEB-08: st.rerun() inside @st.dialog confirm callback without invalidate()
+# Dialog callbacks that mutate data need invalidate() before rerun, same as main page.
+# Cancel buttons in dialogs do NOT need invalidate (they close without action).
+web08_locs = []
+if os.path.isdir(web_dir):
+    for pyfile in find_py_files(web_dir):
+        flines = read_lines(pyfile)
+        rpath = rel_path(pyfile)
+        text = "".join(flines)
+        # Find @st.dialog decorated functions and their callbacks
+        in_dialog_scope = False
+        dialog_indent = -1
+        for idx, fline in enumerate(flines):
+            stripped = fline.strip()
+            indent = len(fline) - len(fline.lstrip())
+            # Detect @st.dialog decorator
+            if "@st.dialog" in stripped:
+                in_dialog_scope = True
+                # The function def is on the next non-decorator line
+                continue
+            if in_dialog_scope and stripped.startswith("def "):
+                dialog_indent = indent
+                continue
+            # Track end of dialog function scope
+            if in_dialog_scope and dialog_indent >= 0:
+                if indent <= dialog_indent and stripped and not stripped.startswith("#") and not stripped.startswith("@"):
+                    in_dialog_scope = False
+                    dialog_indent = -1
+                    continue
+            # Inside dialog scope, check st.rerun() calls
+            if in_dialog_scope and "st.rerun()" in fline:
+                start = max(0, idx - 10)
+                preceding = "".join(flines[start:idx])
+                # Cancel button context: skip (no invalidation needed)
+                cancel_pat = re.compile(r'["\'](cancel|close|dismiss)["\']', re.IGNORECASE)
+                if cancel_pat.search(preceding):
+                    continue
+                # Mutation context: needs invalidate()
+                if "invalidate(" not in preceding:
+                    # Check if there's a data-mutating call nearby
+                    mutation_pats = ["backup", "restore", "delete", "remove",
+                                     "add_", "save", "clean", "update"]
+                    has_mutation = any(mp in preceding.lower() for mp in mutation_pats)
+                    if has_mutation:
+                        web08_locs.append(f"{rpath}:{idx + 1}")
+
+make_result("WEB-08", "warn" if web08_locs else "pass", len(web08_locs), web08_locs,
+            f"Dialog-scope st.rerun() after mutation without invalidate(): {len(web08_locs)} found")
 
 
 # =========================================================================
@@ -1098,6 +1155,34 @@ for pyfile in find_py_files(SRC_DIR):
 make_result("ARCH-04", "info" if arch04_locs else "pass", len(arch04_locs),
             arch04_locs[:MAX_LOCATIONS],
             f"Concurrent-unsafe file operations (no locking): {len(arch04_locs)} found")
+
+# ARCH-05: ThreadPoolExecutor workers accessing shared mutable state
+arch05_locs = []
+tpe_pat = re.compile(r"ThreadPoolExecutor\(")
+for pyfile in find_py_files(SRC_DIR):
+    lines = read_lines(pyfile)
+    rpath = rel_path(pyfile)
+    text = "".join(lines)
+    if "ThreadPoolExecutor" not in text:
+        continue
+    for i, line in enumerate(lines):
+        if tpe_pat.search(line):
+            # Find the with block or executor usage scope (next 50 lines)
+            scope = "".join(lines[i:min(i + 50, len(lines))])
+            # Check if executor.submit or executor.map passes shared state
+            # Look for self. references in the submitted function/lambda
+            if "executor.submit" in scope or "executor.map" in scope:
+                # Check if the submitted callable writes to shared files
+                shared_write_pats = ["json.dump", "write_text", "write_bytes",
+                                     "symlink_to", "os.rename", "shutil"]
+                has_shared_write = any(p in scope for p in shared_write_pats)
+                has_lock = "lock" in scope.lower() or "fcntl" in scope.lower()
+                if has_shared_write and not has_lock:
+                    arch05_locs.append(f"{rpath}:{i + 1}: ThreadPoolExecutor with shared writes")
+
+make_result("ARCH-05", "warn" if arch05_locs else "pass", len(arch05_locs),
+            arch05_locs[:MAX_LOCATIONS],
+            f"ThreadPoolExecutor with potentially shared mutable state: {len(arch05_locs)} found")
 
 
 # =========================================================================

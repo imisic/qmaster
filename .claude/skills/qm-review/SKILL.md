@@ -30,6 +30,7 @@ Display the JSON summary. Split findings by check ID prefix for agent injection:
 New checks added 2026-03-28-v2: SEC-14 (shallow copy secrets), SEC-15 (symlink traversal) → Security. ARCH-03 (non-atomic writes), ARCH-04 (concurrent access) → Architecture. QUAL-09 (unclosed extractfile) → Quality.
 New checks added 2026-03-31: QUAL-10 (f-string logging) → Quality. EXC-01 whitelist: metadata.py:20 `except BaseException` in atomic write is correct → Architecture should skip.
 Whitelist added 2026-04-07: WEB-03 false positive — `render_config_tab` and `render_project_history_tab` in `src/web/views/claude_code_cleanup.py` are tab helpers invoked from `claude_code.py:62,64`, not page renderers. Architecture should skip these. SEC-14 false positive — `config_manager.py:132-142` was refactored to `{k: v.copy() for k, v in ...}` so the mutation lands on per-item copies, not originals; preflight still flags `.copy()` near password fields but the leak is gone. Verify before flagging.
+New checks added 2026-04-21: WEB-08 (dialog-scope rerun validation) → Architecture. ARCH-05 (ThreadPoolExecutor shared mutable state) → Architecture. EXC-03 whitelist expanded: `except FileNotFoundError: continue` after stat/is_file/is_dir is valid cleanup, not silent swallowing.
 
 If the script doesn't exist, report the error and skip preflight (legacy scripts have been consolidated into the comprehensive script).
 
@@ -40,7 +41,7 @@ Launch all three simultaneously. Scopes are **strictly non-overlapping**.
 | Agent | Owns | Does NOT Check |
 |-|-|-|
 | **Security** | Command injection, path traversal, credentials, XSS, file permissions, deserialization, SSRF, tempfile safety, unbounded input, shallow copy secrets, symlink traversal | Exception handling, cache patterns, type hints |
-| **Architecture** | Cache invalidation/rerun, view/component registration, config access, error handling, backup return patterns, resource leaks, TOCTOU races, error-swallowing returns, non-atomic critical writes, concurrent backup safety | Security, type hints |
+| **Architecture** | Cache invalidation/rerun, view/component registration, config access, error handling, backup return patterns, resource leaks, TOCTOU races, error-swallowing returns, non-atomic critical writes, concurrent backup safety, dialog-scope rerun patterns, thread pool shared state | Security, type hints |
 | **Quality** | Type modernization, annotations, dead code, complexity, print statements, dict access safety, unguarded next(), unbounded collections, unclosed file handles | Security, cache patterns |
 
 If `--security-only` flag is set, run only the Security agent.
@@ -148,7 +149,7 @@ For symlink traversal in recursive operations (preflight SEC-15 reports location
 - Symlink cycles cause infinite traversal and eventual OOM or hang
 - Found: `engine.py` uses `rglob("*")` in `_estimate_project_size()` without `follow_symlinks=False`
 - Fix: use `os.walk(path, followlinks=False)` or add `not item.is_symlink()` guard
-- NOTE: SEC-15 produces ~38 warnings. Prioritize: (1) backup engine traversal paths that scan user project dirs (highest risk), (2) utility code scanning known-structure dirs (lower risk). Skip rglob in test/analysis code that operates on qmaster's own backup dirs.
+- NOTE: SEC-15 produces ~46 warnings. Prioritize: (1) backup engine traversal paths that scan user project dirs (highest risk), (2) utility code scanning known-structure dirs (lower risk). Skip rglob in test/analysis code that operates on qmaster's own backup dirs.
 
 ### PREFLIGHT KNOWN ISSUES (verify each one)
 
@@ -219,6 +220,8 @@ You are reviewing Quartermaster, a Python 3.10+ backup management tool with Stre
 - `BackupEngine` methods return `(bool, str)` tuples — success `(True, msg)` or failure `(False, msg)`.
 - Web state initialized once via `@st.cache_resource` in `web/state.py` — don't flag as missing cache.
 - `exists()` checks in CLI display code (listing files, showing status) — TOCTOU is only relevant for create/delete/write operations, not reads for display.
+- `except FileNotFoundError: continue` after `stat()`, `is_file()`, `is_dir()`, or `rglob()` in file scanning/cleanup loops — these iterate over paths that may vanish between enumeration and access. Silently continuing is correct; logging at debug level is a nice-to-have, not a requirement. Preflight EXC-03 may flag these; dismiss.
+- `src/web/components/layout.py:330` — `st.rerun()` inside `@st.dialog` cancel button handler. Cancel closes the dialog and reruns the main page. No data mutation occurred, so no `invalidate()` needed. Preflight WEB-07 flags this; dismiss.
 
 ### WHAT TO LOOK FOR
 
@@ -289,6 +292,23 @@ Tab-helper convention to apply when reviewing the Claude Code page or future mul
 - Page renderer (`render_<page>`) lives in its own file, is registered in `PAGE_MAP`
 - Tab renderers (`render_<tab>_tab`) live in a sibling file, are imported and called from the page
 - Do NOT flag tab renderers as missing from `PAGE_MAP` — they're not pages
+
+### Added by review-optimizer [2026-04-21]
+
+For `@st.dialog` callback rerun patterns (preflight WEB-08 reports locations):
+- `@st.dialog` decorated functions run in an isolated scope. `st.rerun()` inside a dialog closes the dialog and reruns the main page.
+- **Cancel buttons** inside dialogs call `st.rerun()` without `invalidate()`. This is correct: cancel means "do nothing, close dialog."
+- **Confirm callbacks** (`on_confirm`) that mutate data MUST call `invalidate()` before `st.rerun()`. The callback runs inside the dialog scope but the cache clear affects the main page's next render.
+- **Confirm callbacks that call functions returning `(bool, str)`** — check that the error path also reruns or at minimum shows `st.error()`. If only the success path reruns, the dialog stays open on error with no feedback.
+- Found: `claude_code.py:256-264` — `_on_confirm` calls `invalidate()` + `st.rerun()` on success (correct), shows `st.error()` on failure (correct). Pattern reference for other dialogs.
+- Found: `projects.py:495-521`, `projects.py:524-570`, `databases.py:225-266` — all use `@st.dialog` directly. Verify each has invalidate before rerun on mutation paths.
+
+For ThreadPoolExecutor shared state safety (preflight ARCH-05 reports locations):
+- `ThreadPoolExecutor` is used in `project_ops.py:486`, `database_ops.py:238`, `git_ops.py:164` for parallel backup/restore operations.
+- Workers share the same `BackupEngine` instance (`self`). If workers call methods that write to shared files (metadata JSON, snapshot JSON, `latest` symlink), they can race.
+- Engine `_finalize_backup()` uses `fcntl.flock()` for symlink updates (engine.py:244). This is correct for the symlink race but only protects the symlink, not metadata writes.
+- Check: do parallel workers write metadata to the same directory? Each project/database gets its own subdirectory, so parallel backups of DIFFERENT projects are safe. Parallel backups of the SAME project are the risk (snapshot overwrite, ARCH-04).
+- Only flag if `max_workers > 1` AND workers share a project/database name argument.
 
 ### PREFLIGHT KNOWN ISSUES (verify each one)
 
