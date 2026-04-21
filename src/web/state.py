@@ -80,7 +80,13 @@ def init_app_state() -> AppComponents:
     paths = cached.config.get_storage_paths()
     local_path = paths.get("local")
     claude_export_path = (local_path / "claude_exports") if local_path else None
-    claude_config = ClaudeConfigManager(export_base_path=claude_export_path)
+
+    # Load configured claude_dirs from settings, or let auto-detection handle it
+    from pathlib import Path as _Path
+
+    claude_dirs_setting = cached.config.get_setting("claude_config.claude_dirs")
+    claude_dirs = [_Path(p).expanduser() for p in claude_dirs_setting] if claude_dirs_setting else None
+    claude_config = ClaudeConfigManager(export_base_path=claude_export_path, claude_dirs=claude_dirs)
 
     app = AppComponents(
         config=cached.config,

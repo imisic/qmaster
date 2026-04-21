@@ -45,23 +45,51 @@ class _ClaudeConfigBase:
         "telemetry": ("telemetry", 30),
     }
 
-    def __init__(self, export_base_path: Path | None = None, cache_ttl: int = DEFAULT_CACHE_TTL):
+    def __init__(
+        self,
+        export_base_path: Path | None = None,
+        cache_ttl: int = DEFAULT_CACHE_TTL,
+        claude_dirs: list[Path] | None = None,
+    ):
         """
         Initialize Claude Config Manager
 
         Args:
             export_base_path: Base path for exports (default: ~/backups/claude_exports)
             cache_ttl: Cache time-to-live in seconds (default: 300 = 5 minutes)
+            claude_dirs: List of .claude directories to manage. Auto-detected if None.
         """
-        self.claude_dir = Path.home() / ".claude"
+        # Resolve directories to manage
+        if claude_dirs:
+            self.claude_dirs = [p for p in claude_dirs if p.is_dir()]
+        else:
+            self.claude_dirs = self._auto_detect_claude_dirs()
+
+        # Primary dir for backward compatibility (first dir, or fallback to ~/.claude)
+        self.claude_dir = self.claude_dirs[0] if self.claude_dirs else Path.home() / ".claude"
         self.projects_dir = self.claude_dir / "projects"
         self.mcp_config_path = self.claude_dir / "mcp.json"
+
+        # All projects dirs across all managed .claude directories
+        self.all_projects_dirs = [d / "projects" for d in self.claude_dirs if (d / "projects").is_dir()]
+
         self.export_base_path = export_base_path or Path.home() / "backups" / "claude_exports"
         self.export_base_path.mkdir(parents=True, exist_ok=True)
 
         # Cache for directory sizes (path -> (size, timestamp))
         self._size_cache: dict[str, tuple[int, float]] = {}
         self._cache_ttl = cache_ttl
+
+    @staticmethod
+    def _auto_detect_claude_dirs() -> list[Path]:
+        """Auto-detect .claude directories on this machine."""
+        try:
+            from core.discovery import detect_claude_dirs
+            return detect_claude_dirs()
+        except ImportError:
+            # Fallback if discovery module not available
+            home_claude = Path.home() / ".claude"
+            return [home_claude] if home_claude.is_dir() else []
 
     def invalidate_cache(self, directory: Path | None = None) -> None:
         """
@@ -74,7 +102,7 @@ class _ClaudeConfigBase:
             cache_key = str(directory)
             if cache_key in self._size_cache:
                 del self._size_cache[cache_key]
-                logger.debug(f"Invalidated cache for {directory}")
+                logger.debug("Invalidated cache for %s", directory)
         else:
             self._size_cache.clear()
             logger.debug("Cleared entire size cache")
@@ -100,27 +128,28 @@ class _ClaudeConfigBase:
             age = time.time() - cached_time
 
             if age < self._cache_ttl:
-                logger.debug(f"Using cached size for {directory} (age: {age:.1f}s)")
+                logger.debug("Using cached size for %s (age: %.1fs)", directory, age)
                 return cached_size
             else:
-                logger.debug(f"Cache expired for {directory} (age: {age:.1f}s)")
+                logger.debug("Cache expired for %s (age: %.1fs)", directory, age)
 
         # Calculate size
         total = 0
         try:
             for item in directory.rglob("*"):
-                if item.is_file():
-                    try:
-                        total += item.stat().st_size
-                    except (OSError, PermissionError):
-                        continue
+                if item.is_symlink() or not item.is_file():
+                    continue
+                try:
+                    total += item.stat().st_size
+                except (OSError, PermissionError):
+                    continue
         except (OSError, PermissionError) as e:
-            logger.warning(f"Permission error accessing {directory}: {e}")
+            logger.warning("Permission error accessing %s: %s", directory, e)
 
         # Update cache
         if use_cache:
             self._size_cache[cache_key] = (total, time.time())
-            logger.debug(f"Cached size for {directory}: {total / (1024 * 1024):.2f} MB")
+            logger.debug("Cached size for %s: %.2f MB", directory, total / (1024 * 1024))
 
         return total
 
@@ -146,15 +175,17 @@ class _ClaudeConfigBase:
 
         try:
             for file_path in dir_path.rglob("*"):
-                if file_path.is_file():
-                    file_count += 1
-                    size = file_path.stat().st_size
-                    total_size += size
-                    if file_path.stat().st_mtime < cutoff:
-                        old_count += 1
-                        old_size += size
+                if file_path.is_symlink() or not file_path.is_file():
+                    continue
+                file_count += 1
+                st = file_path.stat()
+                size = st.st_size
+                total_size += size
+                if st.st_mtime < cutoff:
+                    old_count += 1
+                    old_size += size
         except (OSError, PermissionError) as e:
-            logger.warning(f"Error reading {dir_path}: {e}")
+            logger.warning("Error reading %s: %s", dir_path, e)
 
         return {
             "exists": True,
@@ -171,9 +202,6 @@ class _ClaudeConfigBase:
             dir_path: Directory to clean
             max_age_days: Delete files older than this (None = delete all)
         """
-        if not dir_path.exists():
-            return True, f"Not found: {dir_path.name}", {"deleted": 0, "size_freed_mb": 0}
-
         deleted_count = 0
         size_freed = 0
 
@@ -191,15 +219,16 @@ class _ClaudeConfigBase:
             else:
                 cutoff_time = datetime.now().timestamp() - (max_age_days * 24 * 3600)
                 for file_path in dir_path.rglob("*"):
-                    if file_path.is_file():
-                        try:
-                            stat = file_path.stat()
-                            if stat.st_mtime < cutoff_time:
-                                size_freed += stat.st_size
-                                file_path.unlink()
-                                deleted_count += 1
-                        except (FileNotFoundError, OSError):
-                            continue
+                    if file_path.is_symlink() or not file_path.is_file():
+                        continue
+                    try:
+                        stat = file_path.stat()
+                        if stat.st_mtime < cutoff_time:
+                            size_freed += stat.st_size
+                            file_path.unlink()
+                            deleted_count += 1
+                    except (FileNotFoundError, OSError):
+                        continue
 
                 self.invalidate_cache()
                 size_mb = round(size_freed / (1024 * 1024), 2)
@@ -208,6 +237,8 @@ class _ClaudeConfigBase:
                     f"Deleted {deleted_count} files from {dir_path.name}, freed {size_mb} MB",
                     {"deleted": deleted_count, "size_freed_mb": size_mb},
                 )
-        except Exception as e:
-            logger.error(f"Error cleaning {dir_path}: {e}")
+        except FileNotFoundError:
+            return True, f"Not found: {dir_path.name}", {"deleted": 0, "size_freed_mb": 0}
+        except OSError as e:
+            logger.error("Error cleaning %s: %s", dir_path, e)
             return False, str(e), {}

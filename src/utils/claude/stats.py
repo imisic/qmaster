@@ -16,7 +16,7 @@ class _StatsMixin:
 
     def get_stats(self, use_cache: bool = False) -> dict[str, Any]:
         """
-        Get overall Claude configuration statistics
+        Get overall Claude configuration statistics across all managed directories.
 
         Args:
             use_cache: Whether to use cached values (default: False for fresh data)
@@ -24,7 +24,7 @@ class _StatsMixin:
         Returns:
             Dictionary with size, count, and health metrics
         """
-        if not self.claude_dir.exists():
+        if not any(d.exists() for d in self.claude_dirs):
             return {
                 "exists": False,
                 "total_size_bytes": 0,
@@ -33,17 +33,21 @@ class _StatsMixin:
                 "projects_size_mb": 0.0,
                 "health": "unknown",
                 "largest_project": None,
+                "dir_count": 0,
             }
 
-        # Calculate total .claude directory size - use fresh data by default
-        total_size = self.get_directory_size(self.claude_dir, use_cache=use_cache)
+        # Aggregate across all claude dirs
+        total_size = sum(
+            self.get_directory_size(d, use_cache=use_cache)
+            for d in self.claude_dirs if d.exists()
+        )
 
-        # Calculate projects directory size and count
         projects_size = 0
         projects_count = 0
-        if self.projects_dir.exists():
-            projects_size = self.get_directory_size(self.projects_dir, use_cache=use_cache)
-            projects_count = len(list(self.projects_dir.iterdir()))
+        for pd in self.all_projects_dirs:
+            if pd.exists():
+                projects_size += self.get_directory_size(pd, use_cache=use_cache)
+                projects_count += len(list(pd.iterdir()))
 
         # Find largest project
         projects = self.list_projects()
@@ -66,58 +70,51 @@ class _StatsMixin:
             "projects_size_mb": round(projects_size / (1024 * 1024), 1),
             "health": health,
             "largest_project": largest_project,
+            "dir_count": len(self.claude_dirs),
         }
 
     def list_projects(self) -> list[dict[str, Any]]:
         """
-        List all Claude projects with their sizes and metadata
+        List all Claude projects with their sizes and metadata across all managed directories.
 
         Returns:
             List of project dictionaries with path, size, date info
         """
-        if not self.projects_dir.exists():
-            return []
-
         projects: list[dict[str, Any]] = []
 
-        try:
-            for project_path in self.projects_dir.iterdir():
-                if not project_path.is_dir():
-                    continue
+        for projects_dir in self.all_projects_dirs:
+            source_label = str(projects_dir.parent)
+            try:
+                for project_path in projects_dir.iterdir():
+                    if not project_path.is_dir():
+                        continue
 
-                try:
-                    size_bytes = self.get_directory_size(project_path)
+                    try:
+                        size_bytes = self.get_directory_size(project_path)
+                        mtime = project_path.stat().st_mtime
+                        last_modified = datetime.fromtimestamp(mtime)
+                        conversation_files = list(project_path.glob("*.jsonl"))
+                        cache_name = project_path.name
+                        original_path = self._decode_project_name(cache_name)
 
-                    # Get last modified time
-                    mtime = project_path.stat().st_mtime
-                    last_modified = datetime.fromtimestamp(mtime)
-
-                    # Count conversation files
-                    conversation_files = list(project_path.glob("*.jsonl"))
-
-                    # Resolve cache name back to real path via the shared decoder
-                    # (cwd peek → filesystem probe → dumb dash-to-slash fallback)
-                    cache_name = project_path.name
-                    original_path = self._decode_project_name(cache_name)
-
-                    projects.append(
-                        {
-                            "name": cache_name,
-                            "original_path": original_path,  # The actual project path
-                            "cache_path": str(project_path),  # The cache location
-                            "path": str(project_path),  # Keep for compatibility
-                            "size_bytes": size_bytes,
-                            "size_mb": round(size_bytes / (1024 * 1024), 2),
-                            "last_modified": last_modified,
-                            "conversation_count": len(conversation_files),
-                        }
-                    )
-                except (OSError, PermissionError) as e:
-                    logger.warning("Error accessing project %s: %s", project_path, e)
-                    continue
-        except (OSError, PermissionError) as e:
-            logger.error("Error listing projects: %s", e)
-            return []
+                        projects.append(
+                            {
+                                "name": cache_name,
+                                "original_path": original_path,
+                                "cache_path": str(project_path),
+                                "path": str(project_path),
+                                "size_bytes": size_bytes,
+                                "size_mb": round(size_bytes / (1024 * 1024), 2),
+                                "last_modified": last_modified,
+                                "conversation_count": len(conversation_files),
+                                "source": source_label,
+                            }
+                        )
+                    except (OSError, PermissionError) as e:
+                        logger.warning("Error accessing project %s: %s", project_path, e)
+                        continue
+            except (OSError, PermissionError) as e:
+                logger.error("Error listing projects in %s: %s", projects_dir, e)
 
         # Sort by size (largest first)
         projects.sort(key=lambda x: x["size_bytes"], reverse=True)
@@ -215,54 +212,42 @@ class _StatsMixin:
         return success, " | ".join(message_parts), details
 
     def get_all_folder_stats(self, use_cache: bool = False) -> dict[str, Any]:
-        """Get size stats for all .claude subfolders
+        """Get size stats for all .claude subfolders across all managed directories.
 
         Args:
             use_cache: Whether to use cached values (default: False for fresh data)
         """
-        folders = {}
+        folders: dict[str, Any] = {}
 
-        # Define all known folders
         folder_names = [
-            "projects",
-            "plugins",
-            "file-history",
-            "debug",
-            "shell-snapshots",
-            "session-env",
-            "plans",
-            "image-cache",
-            "todos",
-            "statsig",
-            "ide",
-            "telemetry",
-            "paste-cache",
-            "cache",
-            "tasks",
+            "projects", "plugins", "file-history", "debug", "shell-snapshots",
+            "session-env", "plans", "image-cache", "todos", "statsig",
+            "ide", "telemetry", "paste-cache", "cache", "tasks",
         ]
 
+        # Aggregate across all claude dirs
         for name in folder_names:
-            folder_path = self.claude_dir / name
-            if folder_path.exists():
-                size = self.get_directory_size(folder_path, use_cache=use_cache)
-                folders[name] = {"size_bytes": size, "size_mb": round(size / (1024 * 1024), 2)}
-            else:
-                folders[name] = {"size_bytes": 0, "size_mb": 0}
+            total_size = 0
+            for claude_d in self.claude_dirs:
+                folder_path = claude_d / name
+                if folder_path.exists():
+                    total_size += self.get_directory_size(folder_path, use_cache=use_cache)
+            folders[name] = {"size_bytes": total_size, "size_mb": round(total_size / (1024 * 1024), 2)}
 
-        # Add history.jsonl
-        history_file = self.claude_dir / "history.jsonl"
-        if history_file.exists():
-            size = history_file.stat().st_size
-            folders["history.jsonl"] = {"size_bytes": size, "size_mb": round(size / (1024 * 1024), 2)}
-        else:
-            folders["history.jsonl"] = {"size_bytes": 0, "size_mb": 0}
+        # Aggregate history.jsonl across dirs
+        history_size = 0
+        for claude_d in self.claude_dirs:
+            history_file = claude_d / "history.jsonl"
+            if history_file.exists():
+                history_size += history_file.stat().st_size
+        folders["history.jsonl"] = {"size_bytes": history_size, "size_mb": round(history_size / (1024 * 1024), 2)}
 
-        # Add plugins/cache separately
-        plugins_cache = self.claude_dir / "plugins" / "cache"
-        if plugins_cache.exists():
-            size = self.get_directory_size(plugins_cache, use_cache=use_cache)
-            folders["plugins/cache"] = {"size_bytes": size, "size_mb": round(size / (1024 * 1024), 2)}
-        else:
-            folders["plugins/cache"] = {"size_bytes": 0, "size_mb": 0}
+        # Aggregate plugins/cache
+        plugins_size = 0
+        for claude_d in self.claude_dirs:
+            plugins_cache = claude_d / "plugins" / "cache"
+            if plugins_cache.exists():
+                plugins_size += self.get_directory_size(plugins_cache, use_cache=use_cache)
+        folders["plugins/cache"] = {"size_bytes": plugins_size, "size_mb": round(plugins_size / (1024 * 1024), 2)}
 
         return folders

@@ -26,25 +26,25 @@ class _SessionInspectorMixin:
 
     def list_session_projects(self) -> list[dict[str, Any]]:
         """
-        List every project under ~/.claude/projects/ with session counts and byte totals.
+        List every project across all managed .claude/projects/ dirs with session counts and byte totals.
 
         Returns one row per project with:
             name, original_path, session_count, agent_count, compaction_count,
-            visible_bytes, hidden_bytes, hidden_ratio, last_active
+            visible_bytes, hidden_bytes, hidden_ratio, last_active, source
         """
-        if not self.projects_dir.exists():
-            return []
-
         rows = []
-        for project_dir in self.projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-            try:
-                row = self._inspect_project_dir(project_dir)
-            except (OSError, PermissionError) as e:
-                logger.warning("Cannot inspect project %s: %s", project_dir.name, e)
-                continue
-            rows.append(row)
+        for projects_dir in self.all_projects_dirs:
+            source_label = str(projects_dir.parent)
+            for project_dir in projects_dir.iterdir():
+                if not project_dir.is_dir():
+                    continue
+                try:
+                    row = self._inspect_project_dir(project_dir)
+                    row["source"] = source_label
+                except (OSError, PermissionError) as e:
+                    logger.warning("Cannot inspect project %s: %s", project_dir.name, e)
+                    continue
+                rows.append(row)
 
         rows.sort(key=lambda r: r["hidden_bytes"] + r["visible_bytes"], reverse=True)
         return rows
@@ -118,10 +118,14 @@ class _SessionInspectorMixin:
                the branch whose directory actually exists on disk.
             3. Naive dash-to-slash as a last resort.
         """
-        project_dir = self.projects_dir / encoded
-        cwd = self._peek_session_cwd(project_dir)
-        if cwd:
-            return cwd
+        # Search across all projects dirs for the encoded name
+        for pd in self.all_projects_dirs:
+            project_dir = pd / encoded
+            if project_dir.is_dir():
+                cwd = self._peek_session_cwd(project_dir)
+                if cwd:
+                    return cwd
+
         probed = self._decode_by_fs_probe(encoded)
         if probed:
             return probed
@@ -307,37 +311,36 @@ class _SessionInspectorMixin:
 
     def scan_system_reminders(self, limit: int = 100) -> list[dict[str, Any]]:
         """
-        Find injected system reminders in raw session JSONLs.
+        Find injected system reminders in raw session JSONLs across all managed dirs.
 
         Looks for the literal "system-reminder" marker plus the "NEVER mention"
         signature so we don't false-positive on user messages that mention the term.
         """
-        if not self.projects_dir.exists():
-            return []
         results: list[dict[str, Any]] = []
-        # Primary session JSONLs only — skip subagents/ subtree (thousands of files,
-        # different content shape, not interesting for system-reminder injection).
-        for jsonl in self.projects_dir.glob("*/*.jsonl"):
+        for projects_dir in self.all_projects_dirs:
             if len(results) >= limit:
                 break
-            try:
-                if jsonl.stat().st_size > MAX_BYTES_PER_FILE:
+            for jsonl in projects_dir.glob("*/*.jsonl"):
+                if len(results) >= limit:
+                    break
+                try:
+                    if jsonl.stat().st_size > MAX_BYTES_PER_FILE:
+                        continue
+                    with jsonl.open(errors="replace") as fh:
+                        for i, line in enumerate(fh, start=1):
+                            if SYSTEM_REMINDER_MARKER in line and HIDDEN_NEVER_MENTION in line:
+                                results.append(
+                                    {
+                                        "source_file": str(jsonl.relative_to(projects_dir)),
+                                        "line_number": i,
+                                        "snippet": line.strip()[:MAX_REMINDER_LINE],
+                                    }
+                                )
+                                if len(results) >= limit:
+                                    break
+                except (OSError, PermissionError) as e:
+                    logger.warning("Cannot scan %s: %s", jsonl, e)
                     continue
-                with jsonl.open(errors="replace") as fh:
-                    for i, line in enumerate(fh, start=1):
-                        if SYSTEM_REMINDER_MARKER in line and HIDDEN_NEVER_MENTION in line:
-                            results.append(
-                                {
-                                    "source_file": str(jsonl.relative_to(self.projects_dir)),
-                                    "line_number": i,
-                                    "snippet": line.strip()[:MAX_REMINDER_LINE],
-                                }
-                            )
-                            if len(results) >= limit:
-                                break
-            except (OSError, PermissionError) as e:
-                logger.warning("Cannot scan %s: %s", jsonl, e)
-                continue
         return results
 
     def read_session_messages(self, project_name: str, session_id: str, max_messages: int = 200) -> list[dict[str, Any]]:
