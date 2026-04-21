@@ -64,8 +64,6 @@ Thumbs.db
 # Claude Code — skills/rules are public, local config is private
 .claude/settings.local.json
 .claude/projects/
-.claude/commands/
-!.claude/commands/qm-setup.md
 .claude/memory/
 .claude/memory.json
 .claude/plans/
