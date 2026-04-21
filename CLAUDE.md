@@ -157,7 +157,7 @@ Path-scoped rules auto-loaded when editing matching files. These encode the same
 | `web-layer.md` | `src/web/**/*.py` | Cache invalidation, rerun discipline, view registration, no print() |
 | `error-handling.md` | `src/**/*.py` | Exception specificity, silent failures, logging, resilience/retry |
 | `code-quality.md` | `src/**/*.py` | Size limits, modern types, safe access, dead code, performance, logging format |
-| `file-operations.md` | `src/core/**/*.py` | Atomic writes, TOCTOU prevention, file locking |
+| `file-operations.md` | `src/core/**/*.py`, `src/utils/**/*.py` | Atomic writes, TOCTOU prevention, file locking |
 
 ## Skills (`.claude/skills/`)
 

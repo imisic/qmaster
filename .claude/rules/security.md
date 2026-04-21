@@ -40,8 +40,8 @@ paths:
 - Metadata JSON path fields (`base_backup`, `source_path`) must be validated before use
 - Use `followlinks=False` with `os.walk()`. Use `Path.rglob()` with caution as it follows symlinks by default
 
-## Resource Limits
-- Be aware of shallow copy (`dict.copy()`) leaking references to nested objects containing secrets
+## Shallow Copy Safety
+- Never use `dict.copy()` on dictionaries containing password, secret, key, or token fields. Use `copy.deepcopy()` or build a new dict with per-value copies to prevent mutation leaking back to the original
 
 ## Temporary Files
 - Temporary files created with `mkstemp()` or `NamedTemporaryFile(delete=False)` must be cleaned up in a `finally` block

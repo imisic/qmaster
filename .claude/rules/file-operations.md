@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/core/**/*.py"
+  - "src/utils/**/*.py"
 ---
 
 # File Operation Rules

@@ -30,7 +30,6 @@ paths:
 ## Logging
 - Use lazy formatting in logging calls: `logger.warning("msg %s", var)` not `logger.warning(f"msg {var}")`
 - f-strings in log calls cause eager evaluation even when the log level suppresses output
-- Never log passwords, API keys, tokens, or encryption keys. Redact before logging
 
 ## Resource Safety
 - Collections that grow inside loops (`.append()`, `.add()`) must have size limits when processing external input
