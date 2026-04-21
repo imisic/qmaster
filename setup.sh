@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Quartermaster - First-Time Setup
-# Copies example configs, creates venv, and validates prerequisites.
+# Copies example configs, creates venv, validates prerequisites, and offers guided config.
 
 set -e
 
@@ -13,9 +13,45 @@ NC='\033[0m'
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── Parse flags ─────────────────────────────────────────────────
+NON_INTERACTIVE=false
+for arg in "$@"; do
+    case "$arg" in
+        --non-interactive) NON_INTERACTIVE=true ;;
+    esac
+done
+
+# ── Detect environment ──────────────────────────────────────────
+IS_WSL=false
+WIN_USER=""
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL=true
+    # Detect Windows username
+    if command -v wslvar &> /dev/null; then
+        WIN_USER=$(wslvar USERNAME 2>/dev/null || true)
+    fi
+    if [ -z "$WIN_USER" ]; then
+        # Fall back: find non-system user dirs under /mnt/c/Users
+        for d in /mnt/c/Users/*/; do
+            uname=$(basename "$d")
+            case "$uname" in
+                Public|Default|"Default User"|"All Users"|desktop.ini) continue ;;
+                *) WIN_USER="$uname"; break ;;
+            esac
+        done
+    fi
+fi
+
 echo -e "${BLUE}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Quartermaster - Setup                      ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════╝${NC}"
+echo ""
+
+if [ "$IS_WSL" = true ]; then
+    echo -e "  ${GREEN}✓${NC} WSL detected (Windows user: ${YELLOW}${WIN_USER:-unknown}${NC})"
+else
+    echo -e "  ${GREEN}✓${NC} Linux detected"
+fi
 echo ""
 
 # ── Check Prerequisites ──────────────────────────────────────────
@@ -57,16 +93,27 @@ echo ""
 
 # ── Virtual Environment ──────────────────────────────────────────
 
-if [ ! -d "$DIR/venv" ]; then
+# On WSL with project on /mnt/, put venv on Linux filesystem for performance
+VENV_PATH="$DIR/venv"
+if [ "$IS_WSL" = true ] && echo "$DIR" | grep -q "^/mnt/"; then
+    VENV_PATH="$HOME/venvs/qmaster"
+    echo -e "${BLUE}WSL detected with project on Windows mount.${NC}"
+    echo -e "  Venv will be created on the Linux filesystem for speed."
+    echo -e "  Location: ${YELLOW}$VENV_PATH${NC}"
+    echo ""
+fi
+
+if [ ! -d "$VENV_PATH" ]; then
     echo -e "${BLUE}Creating virtual environment...${NC}"
-    python3 -m venv "$DIR/venv"
-    echo -e "  ${GREEN}✓${NC} Virtual environment created"
+    mkdir -p "$(dirname "$VENV_PATH")"
+    python3 -m venv "$VENV_PATH"
+    echo -e "  ${GREEN}✓${NC} Virtual environment created at $VENV_PATH"
 else
-    echo -e "  ${GREEN}✓${NC} Virtual environment exists"
+    echo -e "  ${GREEN}✓${NC} Virtual environment exists at $VENV_PATH"
 fi
 
 echo -e "${BLUE}Installing dependencies...${NC}"
-source "$DIR/venv/bin/activate"
+source "$VENV_PATH/bin/activate"
 pip install -q -r "$DIR/requirements.txt"
 echo -e "  ${GREEN}✓${NC} Dependencies installed"
 echo ""
@@ -94,17 +141,89 @@ copy_config "$DIR/config/databases.yaml.example" "$DIR/config/databases.yaml" "d
 
 echo ""
 
+# ── Interactive Storage Path ─────────────────────────────────────
+
+if [ "$NON_INTERACTIVE" = false ]; then
+    DEFAULT_STORAGE="~/backups/qm"
+    echo -e "${BLUE}Configure backup storage path:${NC}"
+    read -p "  Storage path [$DEFAULT_STORAGE]: " STORAGE_PATH
+    STORAGE_PATH="${STORAGE_PATH:-$DEFAULT_STORAGE}"
+
+    # Use Python to update settings.yaml safely
+    "$VENV_PATH/bin/python" -c "
+import yaml
+from pathlib import Path
+
+settings_file = Path('$DIR/config/settings.yaml')
+with open(settings_file) as f:
+    settings = yaml.safe_load(f) or {}
+
+if 'storage' not in settings:
+    settings['storage'] = {}
+settings['storage']['local_base'] = '$STORAGE_PATH'
+
+# Also set claude export path based on storage path
+if 'claude_config' not in settings:
+    settings['claude_config'] = {}
+settings['claude_config']['export_path'] = '$STORAGE_PATH/claude_exports'
+
+with open(settings_file, 'w') as f:
+    yaml.dump(settings, f, default_flow_style=False, sort_keys=False)
+"
+    echo -e "  ${GREEN}✓${NC} Storage path set to ${YELLOW}$STORAGE_PATH${NC}"
+    echo ""
+fi
+
 # ── Smoke Test ───────────────────────────────────────────────────
 
 echo -e "${BLUE}Verifying install...${NC}"
-if "$DIR/venv/bin/python" -c "import streamlit, click, yaml, cryptography, pandas, plotly" 2>/dev/null; then
+if "$VENV_PATH/bin/python" -c "import streamlit, click, yaml, cryptography, pandas, plotly" 2>/dev/null; then
     echo -e "  ${GREEN}✓${NC} Core imports OK"
 else
-    echo -e "  ${RED}✗${NC} Import check failed — re-run: pip install -r requirements.txt"
+    echo -e "  ${RED}✗${NC} Import check failed. Re-run: pip install -r requirements.txt"
     exit 1
 fi
 
+# Validate config loads
+if cd "$DIR/src" && "$VENV_PATH/bin/python" -c "from core.config_manager import ConfigManager; ConfigManager()" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} Configuration loads OK"
+else
+    echo -e "  ${YELLOW}!${NC} Configuration validation failed. Edit your config files and retry."
+fi
+cd "$DIR"
+
 echo ""
+
+# ── Shell Aliases ────────────────────────────────────────────────
+
+if [ "$NON_INTERACTIVE" = false ]; then
+    read -p "Set up shell aliases (qm, qm-web, etc.)? [y/N]: " SETUP_ALIASES
+    if [ "$SETUP_ALIASES" = "y" ] || [ "$SETUP_ALIASES" = "Y" ]; then
+        source "$DIR/setup-aliases.sh"
+        echo -e "  ${GREEN}✓${NC} Aliases added"
+    fi
+else
+    echo -e "  Skipping alias setup (non-interactive mode)"
+fi
+
+echo ""
+
+# ── Windows Desktop Shortcut ─────────────────────────────────────
+
+if [ "$IS_WSL" = true ] && [ -n "$WIN_USER" ] && [ "$NON_INTERACTIVE" = false ]; then
+    DESKTOP_PATH="/mnt/c/Users/$WIN_USER/Desktop"
+    if [ -d "$DESKTOP_PATH" ]; then
+        read -p "Create Windows desktop shortcut for Quartermaster? [y/N]: " CREATE_SHORTCUT
+        if [ "$CREATE_SHORTCUT" = "y" ] || [ "$CREATE_SHORTCUT" = "Y" ]; then
+            cat > "$DESKTOP_PATH/Quartermaster.bat" << EOFBAT
+@echo off
+title Quartermaster
+wsl -e bash -c "cd $DIR && ./run.sh"
+EOFBAT
+            echo -e "  ${GREEN}✓${NC} Desktop shortcut created"
+        fi
+    fi
+fi
 
 # ── Done ─────────────────────────────────────────────────────────
 
@@ -113,9 +232,11 @@ echo -e "${GREEN}║   Setup complete!                             ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "Next steps:"
-echo -e "  1. Edit ${YELLOW}config/settings.yaml${NC} to set your backup storage path"
-echo -e "  2. Edit ${YELLOW}config/projects.yaml${NC} to add your projects"
-echo -e "  3. Edit ${YELLOW}config/databases.yaml${NC} to add your databases"
-echo -e "  4. Run ${YELLOW}./run.sh${NC} to start the web dashboard"
+echo -e "  1. Run ${YELLOW}./run.sh init${NC} for guided project and database discovery"
+echo -e "  2. Or edit configs manually:"
+echo -e "     ${YELLOW}config/settings.yaml${NC}   Storage paths, defaults"
+echo -e "     ${YELLOW}config/projects.yaml${NC}   Your projects"
+echo -e "     ${YELLOW}config/databases.yaml${NC}  Database connections"
+echo -e "  3. Run ${YELLOW}./run.sh${NC} to start the dashboard"
 echo -e "     or  ${YELLOW}./run.sh status${NC} to check status via CLI"
 echo ""

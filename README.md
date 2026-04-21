@@ -51,17 +51,28 @@ git clone https://github.com/imisic/qmaster.git
 cd qmaster
 
 # Setup (creates venv, installs deps, copies example configs)
+# On WSL, the venv is automatically placed on the Linux filesystem for speed.
 ./setup.sh
 
-# Configure your stuff
-nano config/settings.yaml     # Storage paths, defaults
-nano config/projects.yaml     # Your projects
-nano config/databases.yaml    # Database connections (passwords auto-encrypt on first run)
+# Guided setup - discovers your projects, databases, and Claude directories
+./run.sh init
 
 # Run it
 ./run.sh                      # Dashboard at http://localhost:8501
 ./run.sh status               # CLI works too
 ./run.sh backup --all
+```
+
+`setup.sh` handles the basics: prerequisites, venv, dependencies, and asks for your backup storage path. On WSL it'll also offer to create a Windows desktop shortcut. Pass `--non-interactive` to skip prompts (for CI/scripts).
+
+`./run.sh init` is the guided setup. It scans your machine for git projects, detects running MySQL databases, and finds Claude Code directories (including both WSL and Windows-side `.claude` on WSL). Pick what you want, and it writes the config for you.
+
+You can also edit configs manually:
+
+```bash
+nano config/settings.yaml     # Storage paths, defaults
+nano config/projects.yaml     # Your projects
+nano config/databases.yaml    # Database connections (passwords auto-encrypt on first run)
 ```
 
 > **No auth on the dashboard.** It's meant for localhost. Don't put it on the internet without something in front of it.
@@ -141,7 +152,9 @@ Config files are in `config/`, gitignored. Only `.example` templates are tracked
 
 ## Works on
 
-**Linux** and **Windows via WSL** (both tested). **macOS** probably works but I haven't tried - Apache log paths might need tweaking.
+**Linux** and **Windows via WSL** (both tested, WSL-optimized). **macOS** probably works but I haven't tried. Apache log paths might need tweaking.
+
+On WSL, setup automatically places the venv on the Linux filesystem for performance, detects your Windows username, and can create a desktop shortcut. The Claude cleanup tool scans both WSL and Windows-side `.claude` directories.
 
 Needs: Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-rendered web scraping.
 

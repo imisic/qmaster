@@ -12,7 +12,15 @@ NC='\033[0m' # No Color
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Activate virtual environment
-source "$DIR/venv/bin/activate"
+VENV_PATH="${QM_VENV:-$HOME/venvs/qmaster}"
+if [ -d "$VENV_PATH" ]; then
+    source "$VENV_PATH/bin/activate"
+elif [ -d "$DIR/venv" ]; then
+    source "$DIR/venv/bin/activate"
+else
+    echo "No virtualenv found. Run setup.sh first."
+    exit 1
+fi
 
 echo -e "${BLUE}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Quartermaster - Starting...                ║${NC}"

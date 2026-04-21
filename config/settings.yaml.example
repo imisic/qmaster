@@ -145,6 +145,9 @@ claude_config:
   retention_days: 90
   export_path: ~/backups/claude_exports
   auto_backup: true
+  # claude_dirs:                    # List of .claude directories to manage (auto-detected if omitted)
+  #   - ~/.claude                   # Default Linux/macOS location
+  #   - /mnt/c/Users/YOU/.claude    # Windows-side (WSL only)
 
 # Scheduler Settings
 scheduler:

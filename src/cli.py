@@ -125,6 +125,12 @@ def cli() -> None:
     pass
 
 
+# Register subcommands from commands/ package
+from commands.init_cmd import init as init_command
+
+cli.add_command(init_command)
+
+
 @cli.command()
 @click.option("--all", is_flag=True, help="Backup all projects")
 @click.option("--project", help="Backup specific project")
