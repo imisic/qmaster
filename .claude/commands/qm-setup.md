@@ -39,7 +39,7 @@ If on WSL, check if `Quartermaster.bat` exists on the Windows Desktop. If not, o
 ```bat
 @echo off
 title Quartermaster
-wsl -e bash -c "cd /mnt/c/Users/imisic/qmaster && ./run.sh"
+wsl -e bash -c "cd $(wslpath -a '%~dp0')/qmaster && ./run.sh"
 ```
 
 ## 5. Verify

@@ -152,6 +152,27 @@ It works for my setup: a few PHP and Python projects on WSL with MySQL. Can't pr
 
 **Bugs and ideas welcome.** See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Developing with Claude Code
+
+The repo ships with a full [Claude Code](https://claude.ai/code) setup. If you use Claude Code, you get the same workflow I use to build this project. Everything lives under `.claude/`:
+
+**First-time setup:** type `/qm-setup` in Claude Code. It walks through prerequisites, venv creation, config discovery, and verification. Same as `./setup.sh` + `./run.sh init` but conversational.
+
+**Development skills** (type these in Claude Code):
+
+| Command | What it does |
+|-|-|
+| `/qm-review` | Runs 3 parallel agents (Security, Architecture, Quality) against your changes. Catches real issues, not style nitpicks. |
+| `/qm-fix` | Feeds review findings back in and fixes them. Single bug mode too. |
+| `/qm-ship` | The full pipeline: review, fix, simplify, commit. One command. |
+| `/qm-commit` | Pre-flight checks, sensitive file scanning, conventional commit messages. |
+
+**Coding rules** (`.claude/rules/`) load automatically based on which files you're editing. Security rules kick in for all Python files, web-layer rules only for Streamlit code, and so on. Claude follows them without you having to repeat yourself.
+
+**Preflight scripts** (`.claude/scripts/`) run ~40 automated checks covering subprocess safety, exception handling, cache invalidation, type coverage, and more. The review skill runs these automatically, but you can also run `bash .claude/scripts/preflight-comprehensive.sh` directly.
+
+None of this is required to contribute. `setup.sh` and the CLI work fine without Claude Code. But if you do use it, the guardrails are already in place.
+
 ## License
 
 MIT - see [LICENSE](LICENSE).

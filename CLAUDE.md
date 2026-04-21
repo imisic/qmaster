@@ -71,8 +71,9 @@ pytest -v                 # Verbose output
 
 ### Core Layer (`src/core/`)
 - **config_manager.py**: Loads YAML configs, handles password encryption with Fernet, auto-discovers projects
-- **backup_engine.py**: Main orchestrator - creates tar.gz archives, mysqldump backups, handles checksums, retention, incremental backups
+- **backup_engine.py**: Main orchestrator, creates tar.gz archives, mysqldump backups, handles checksums, retention, incremental backups
 - **git_manager.py**: Git integration for savepoints, commits, and repository status
+- **discovery.py**: Auto-discovers projects, databases, and Claude Code directories on the host
 
 ### Interface Layer
 - **cli.py**: Click-based CLI with rich console output
@@ -85,9 +86,10 @@ pytest -v                 # Verbose output
 - **storage_analyzer.py**: Disk usage analysis and cleanup recommendations
 - **retention_manager.py**: Tiered retention (hourly/daily/weekly/monthly)
 - **background_backup.py**: Async backup task management
-- **claude_config_manager.py**: Claude Code config cleanup utilities
+- **claude/**: Claude Code config cleanup sub-package (session inspection, backup cleanup, MCP server analysis, advanced cleanup)
 - **html_cleaner.py**: HTML tag cleaning and sanitization
 - **web_scraper.py**: Web page scraping utilities
+- **text_sanitizer.py**: PII stripping for safe text sharing
 - **notifications.py**: Notification system
 
 ### Configuration (`config/`)
@@ -178,10 +180,8 @@ Project-specific Claude Code skills. Invoke via `/qm-<name>`:
 
 ## Preflight Scripts (`.claude/scripts/`)
 
-Automated checks that output JSON with pass/warn/fail status:
+Single comprehensive check that outputs JSON with pass/warn/fail status per check ID:
 
-- **preflight-review.sh**: Type hints coverage, print statements, hardcoded paths, bare excepts, subprocess safety, secrets detection
-- **preflight-perf.sh**: N+1 candidates, cache usage, missing invalidation, large files/functions, deep nesting, duplicates
-- **preflight-quality.sh**: Config compliance, view registration, component exports, commented code, magic numbers, test coverage
+- **preflight-comprehensive.sh**: Consolidated script covering security (SEC-*), subprocess safety (SUB-*), exception handling (EXC-*), web layer (WEB-*), architecture (ARCH-*), performance (PERF-*), types (TYPE-*), and quality (QUAL-*)
 
-Run manually: `bash .claude/scripts/preflight-review.sh`
+Run manually: `bash .claude/scripts/preflight-comprehensive.sh`
