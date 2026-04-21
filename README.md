@@ -1,81 +1,44 @@
 # Quartermaster
 
-A grab-bag of tools I built because I kept needing them.
+Tools I built because I kept needing them. Backups, log reading, cleanup utilities, converters. It started as just backups and kept growing.
 
-I manage a few projects, databases, and I got tired of doing the same stuff manually - backups, checking logs, cleaning up junk, converting things. So I started building tools for it. First it was just backups. Then I needed a log reader. Then a way to clean up Claude Code's `.claude` directories that were eating my disk. Then HTML cleaning. It just keeps growing.
+Streamlit dashboard + CLI. Nothing fancy, but it works.
 
-It's a Streamlit dashboard and a CLI. Nothing fancy, but it works for me.
+The name? Maintenance stuff I keep putting off, things that should happen at least **quarterly**. Quarterly -> Quartermaster -> `qmaster`.
 
-The name? I wanted something that handles the maintenance stuff I keep putting off - things that should happen at least **quarterly**. Quarterly → Quartermaster → `qmaster`.
+> **Built with [Claude Code](https://claude.ai/code).** I'm not a developer, I'm a product guy who wanted to solve real problems and see what Claude Code can do. [More on that below.](#how-this-got-made)
 
-> **Built with [Claude Code](https://claude.ai/code).** I'm not a developer - I'm a product guy who wanted to solve real problems and see what Claude Code can do. [More on that below.](#how-this-got-made)
+## Features
 
-- **Backups** - project archives, MySQL dumps, git bundles, checksums, retention, NAS sync
-- **Log reader** - Apache and PHP logs with search, filtering, stats, export
-- **Claude Code cleanup** - find and clean `.claude` directories eating your disk
-- **HTML cleaner** - HTML to Markdown, plain text, or stripped HTML
-- **Web scraper** - URLs to clean Markdown, with optional JS rendering
-- **Text sanitizer** - strip personal info from text before sharing
-
-## What's in here
-
-**Backups** - Full and incremental project backups, MySQL dumps with encrypted passwords, git savepoints. Every backup gets a SHA256 checksum. Retention policies handle cleanup so old archives don't pile up forever. Optional sync to a NAS or external drive.
+**Backups** - Full and incremental project archives, MySQL dumps with encrypted passwords, git savepoints and portable bundles. SHA256 checksums on everything. Retention policies, tagging, pinning. Optional sync to NAS or external drive.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-**Log reading** - Apache and PHP log parsing with search, severity filtering, stats. Because `grep` gets old when you're digging through access logs at 11 PM.
+**Log reader** - Apache and PHP log parsing with search, severity filtering, stats, export.
 
-**Claude Code cleanup** - Scans your projects for `.claude` directories, shows you what's eating space, lets you clean by category or blow it all away. I built this after noticing 500+ MB of stale Claude data scattered around.
+**Claude Code cleanup** - Scans for `.claude` directories eating your disk, shows what's taking space, lets you clean by category. On WSL it finds both Linux and Windows-side directories.
 
-**Tools** - A grab-bag tab: HTML cleaner (HTML → Markdown, structural HTML, minimal HTML, or plain text), web scraper (URLs → clean Markdown, optional Playwright for JS-rendered pages, domain crawl with depth limits), and text sanitizer (strip phones/emails/PII before sharing, unsanitize to restore).
-
-**The rest:**
-- Incremental and full tar.gz project archives
-- MySQL/MariaDB dumps, compressed, passwords encrypted at rest
-- Git savepoints and portable bundles
-- Tag and pin important backups so retention doesn't delete them
-- Streamlit dashboard + CLI (use whichever)
-- Dashboard catches overdue backups on startup and runs them in the background
-- Hourly/daily/weekly/monthly retention tiers
-- SHA256 checksums on everything
-- Secondary sync to NAS, external drive, whatever
-- Cron scheduling
-- Storage analytics with cleanup suggestions
-
-I'll keep adding stuff as I need it.
+**Tools** - HTML cleaner (HTML to Markdown, plain text, or stripped HTML), web scraper (URLs to clean Markdown, optional JS rendering, domain crawl), and text sanitizer (strip PII before sharing).
 
 ## Quick start
 
 ```bash
 git clone https://github.com/imisic/qmaster.git
 cd qmaster
-
-# Setup (creates venv, installs deps, copies example configs)
-# On WSL, the venv is automatically placed on the Linux filesystem for speed.
-./setup.sh
-
-# Guided setup - discovers your projects, databases, and Claude directories
-./run.sh init
-
-# Run it
-./run.sh                      # Dashboard at http://localhost:8501
-./run.sh status               # CLI works too
-./run.sh backup --all
+./setup.sh            # venv, deps, example configs
+./run.sh init         # discover projects, databases, Claude dirs
+./run.sh              # dashboard at http://localhost:8501
 ```
 
-`setup.sh` handles the basics: prerequisites, venv, dependencies, and asks for your backup storage path. On WSL it'll also offer to create a Windows desktop shortcut. Pass `--non-interactive` to skip prompts (for CI/scripts).
+`setup.sh` creates the venv, installs dependencies, and copies example configs. On WSL it places the venv on the Linux filesystem for speed and can create a Windows desktop shortcut. Pass `--non-interactive` for CI/scripts.
 
-`./run.sh init` is the guided setup. It scans your machine for git projects, detects running MySQL databases, and finds Claude Code directories (including both WSL and Windows-side `.claude` on WSL). Pick what you want, and it writes the config for you.
+`./run.sh init` scans your machine for git projects, detects running MySQL databases, and finds Claude Code directories. Pick what you want, it writes the config.
 
-You can also edit configs manually:
+**Using Claude Code?** Run `/qm-setup` for a guided walkthrough that checks prerequisites, creates the venv, runs discovery, and verifies everything works. Easiest way to onboard.
 
-```bash
-nano config/settings.yaml     # Storage paths, defaults
-nano config/projects.yaml     # Your projects
-nano config/databases.yaml    # Database connections (passwords auto-encrypt on first run)
-```
+Or edit configs manually in `config/` (settings, projects, databases). Only `.example` templates are tracked in git.
 
-> **No auth on the dashboard.** It's meant for localhost. Don't put it on the internet without something in front of it.
+> **No auth on the dashboard.** It's meant for localhost. Don't expose it without something in front of it.
 
 ## CLI
 
@@ -83,31 +46,31 @@ nano config/databases.yaml    # Database connections (passwords auto-encrypt on 
 ./run.sh backup --all                         # Backup all projects
 ./run.sh backup --project my-website -i       # Incremental
 ./run.sh backup-db --all                      # All databases
-./run.sh snapshot my-website -m "before refactor"  # Git + project + DB at once
+./run.sh snapshot my-website -m "before refactor"  # Git + project + DB
 
 ./run.sh restore my-website backup.tar.gz
 ./run.sh restore-db my_app_db backup.sql.gz
 
 ./run.sh status
-./run.sh verify --project my-website --all    # Check checksums
-./run.sh cleanup --dry-run                    # See what would get deleted
+./run.sh verify --project my-website --all
+./run.sh cleanup --dry-run
 ./run.sh storage --detailed
 
 ./run.sh apache-logs --lines 100 --severity error
 ./run.sh php-logs --project my-website --summary
-./run.sh sanitize                             # Strip personal info from text
+./run.sh sanitize
 ```
 
 <details>
 <summary>More commands</summary>
 
 ```bash
-# Git-specific backups
-./run.sh backup-git --project my-website      # Portable git bundle
+# Git-specific
+./run.sh backup-git --project my-website
 ./run.sh restore-git my-website bundle.git
-./run.sh backup-complete --project my-website # Everything, including hidden dirs
+./run.sh backup-complete --project my-website
 
-# Dig into a backup without restoring it
+# Inspect backups without restoring
 ./run.sh list-files my-website backup.tar.gz
 ./run.sh preview-file my-website backup.tar.gz src/app.py
 ./run.sh restore-files my-website backup.tar.gz "*.py" --target /path
@@ -116,9 +79,9 @@ nano config/databases.yaml    # Database connections (passwords auto-encrypt on 
 ./run.sh tag --project my-website backup.tar.gz --tags production --pin
 ./run.sh list-tagged
 ./run.sh retention --status
-./run.sh backfill-checksums                   # Add checksums to old backups
+./run.sh backfill-checksums
 
-# Log extras
+# Logs
 ./run.sh export-apache-logs --format csv
 ./run.sh php-report
 ```
@@ -127,13 +90,13 @@ nano config/databases.yaml    # Database connections (passwords auto-encrypt on 
 
 ## Config
 
-Config files are in `config/`, gitignored. Only `.example` templates are tracked.
+Config files live in `config/`, gitignored. Only `.example` templates are tracked.
 
-**Projects** (`projects.yaml`) - path, type, exclusions, git settings, schedule. Can auto-discover from a parent directory too.
-
-**Databases** (`databases.yaml`) - connection details. Write passwords in plain text, Quartermaster encrypts them with Fernet on first load and swaps them for `enc:` values. Key is stored `0600`, gitignored.
-
-**Settings** (`settings.yaml`) - storage paths, retention, timeouts, dashboard stuff.
+| File | What it configures |
+|-|-|
+| `settings.yaml` | Storage paths, retention, timeouts, dashboard port |
+| `projects.yaml` | Project paths, types, exclusions, git settings, schedule |
+| `databases.yaml` | DB connections. Plain text passwords auto-encrypt on first run (Fernet) |
 
 <details>
 <summary>Settings reference</summary>
@@ -150,13 +113,11 @@ Config files are in `config/`, gitignored. Only `.example` templates are tracked
 
 </details>
 
-## Works on
+## Requirements
 
-**Linux** and **Windows via WSL** (both tested, WSL-optimized). **macOS** probably works but I haven't tried. Apache log paths might need tweaking.
+Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-rendered web scraping.
 
-On WSL, setup automatically places the venv on the Linux filesystem for performance, detects your Windows username, and can create a desktop shortcut. The Claude cleanup tool scans both WSL and Windows-side `.claude` directories.
-
-Needs: Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-rendered web scraping.
+**Linux** and **WSL** are tested. macOS probably works but Apache log paths might need tweaking.
 
 ## Screenshots
 
@@ -172,7 +133,7 @@ Needs: Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-r
 </details>
 
 <details>
-<summary>Security stuff</summary>
+<summary>Security</summary>
 
 - Database passwords encrypted at rest (Fernet: AES-128-CBC + HMAC-SHA256)
 - Encryption key stored `0600`, gitignored
@@ -185,13 +146,11 @@ Needs: Python 3.10+, `mysqldump`, `git`, `cron`. Optional: `playwright` for JS-r
 
 ## How this got made
 
-I started small. I wanted a way to check Apache logs without digging through the terminal. Then I needed proper backups. Then database backups. Then Claude Code cleanup. Then HTML cleaning. One thing led to another and it just keeps going.
+Built entirely with [Claude Code](https://claude.ai/code). I work in product/telecom and wanted to see what Claude Code can do with real problems. I described what I needed, we went back and forth, and it kept growing.
 
-The whole thing was built with [Claude Code](https://claude.ai/code). I'm not a developer - I work in product/telecom and wanted to see what Claude Code can actually do when you throw real problems at it. Turns out, quite a lot. I described what I needed, we went back and forth, and it kept growing.
+When I started, I barely understood git. "What do you mean I have to *stage* before I *commit*?" Building this was probably the best git tutorial I never signed up for.
 
-Fair warning: when I started this, I barely understood git. Like, "what do you mean I have to *stage* before I *commit*?" levels of clueless. Branches, rebasing, pull requests - might as well have been in Latin. I'm still not fluent, but building this was probably the best git tutorial I never signed up for.
-
-Can't promise it handles every edge case. It works for my setup: a few PHP and Python projects on WSL with MySQL. The code is here though, and if it's useful to you, cool.
+It works for my setup: a few PHP and Python projects on WSL with MySQL. Can't promise it handles every edge case, but the code is here.
 
 **Bugs and ideas welcome.** See [CONTRIBUTING.md](CONTRIBUTING.md).
 

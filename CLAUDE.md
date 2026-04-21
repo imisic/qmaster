@@ -159,6 +159,12 @@ Path-scoped rules auto-loaded when editing matching files. These encode the same
 | `code-quality.md` | `src/**/*.py` | Size limits, modern types, safe access, dead code, performance, logging format |
 | `file-operations.md` | `src/core/**/*.py`, `src/utils/**/*.py` | Atomic writes, TOCTOU prevention, file locking |
 
+## Commands (`.claude/commands/`)
+
+| Command | Purpose |
+|-|-|
+| `/qm-setup` | Guided first-time setup: checks prerequisites, creates venv, runs `init` discovery, verifies config |
+
 ## Skills (`.claude/skills/`)
 
 Project-specific Claude Code skills. Invoke via `/qm-<name>`:

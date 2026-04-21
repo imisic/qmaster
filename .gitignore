@@ -65,6 +65,7 @@ Thumbs.db
 .claude/settings.local.json
 .claude/projects/
 .claude/commands/
+!.claude/commands/qm-setup.md
 .claude/memory/
 .claude/memory.json
 .claude/plans/
