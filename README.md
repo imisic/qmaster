@@ -34,8 +34,6 @@ cd qmaster
 
 `./run.sh init` scans your machine for git projects, detects running MySQL databases, and finds Claude Code directories. Pick what you want, it writes the config.
 
-**Using Claude Code?** Run `/qm-setup` for a guided walkthrough that checks prerequisites, creates the venv, runs discovery, and verifies everything works. Easiest way to onboard.
-
 Or edit configs manually in `config/` (settings, projects, databases). Only `.example` templates are tracked in git.
 
 > **No auth on the dashboard.** It's meant for localhost. Don't expose it without something in front of it.
