@@ -42,7 +42,6 @@ class DashboardVisualizer:
 
     def __init__(self, storage_path: Path):
         self.storage_path = Path(storage_path)
-        self.logger = logging.getLogger("DashboardVisualizer")
 
     @staticmethod
     def _read_metadata(metadata_file: Path) -> dict[str, Any] | None:

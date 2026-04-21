@@ -4,6 +4,8 @@ import logging
 import shutil
 from pathlib import Path
 
+from .metadata import metadata_filename
+
 
 class SyncMixin:
     """Mixin providing secondary storage sync methods.
@@ -34,10 +36,10 @@ class SyncMixin:
 
         # Sync backup file
         if not self._smart_copy(local_file, sync_dir / backup_name):
-            self.logger.info(f"Skipped secondary sync for {backup_name} (file unchanged)")
+            self.logger.info("Skipped secondary sync for %s (file unchanged)", backup_name)
 
         # Sync companion metadata JSON
-        metadata_name = backup_name.replace(".tar.gz", ".json").replace(".sql.gz", ".json").replace(".bundle", ".json")
+        metadata_name = metadata_filename(backup_name)
         metadata_path = local_file.parent / metadata_name
         if metadata_path.exists():
             self._smart_copy(metadata_path, sync_dir / metadata_name)
@@ -55,7 +57,7 @@ class SyncMixin:
         # If destination doesn't exist, copy
         if not destination.exists():
             shutil.copy2(source, destination)
-            self.logger.debug(f"Copied {source.name} to {destination} (new file)")
+            self.logger.debug("Copied %s to %s (new file)", source.name, destination)
             return True
 
         # Quick size check
@@ -64,7 +66,7 @@ class SyncMixin:
 
         if source_size != dest_size:
             shutil.copy2(source, destination)
-            self.logger.debug(f"Copied {source.name} to {destination} (size changed)")
+            self.logger.debug("Copied %s to %s (size changed)", source.name, destination)
             return True
 
         # Checksum comparison
@@ -73,8 +75,8 @@ class SyncMixin:
 
         if source_checksum != dest_checksum:
             shutil.copy2(source, destination)
-            self.logger.debug(f"Copied {source.name} to {destination} (checksum mismatch)")
+            self.logger.debug("Copied %s to %s (checksum mismatch)", source.name, destination)
             return True
 
-        self.logger.debug(f"Skipped copying {source.name} (identical)")
+        self.logger.debug("Skipped copying %s (identical)", source.name)
         return False

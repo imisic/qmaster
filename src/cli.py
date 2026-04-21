@@ -1470,22 +1470,23 @@ def cleanup(dry_run: bool, force: bool, retention_days: int, preserve_tagged: bo
             for candidate in candidates["projects"] + candidates["databases"]:
                 try:
                     file_path = Path(candidate["path"])
-                    if file_path.exists():
-                        file_path.unlink()
-                        deleted_count += 1
-                        deleted_size += candidate["size"]
+                    file_path.unlink()
+                    deleted_count += 1
+                    deleted_size += candidate["size"]
 
-                        # Also delete metadata file
-                        metadata_path = file_path.parent / file_path.name.replace(".tar.gz", ".json").replace(
-                            ".sql.gz", ".json"
-                        )
-                        try:
-                            metadata_path.unlink()
-                        except FileNotFoundError:
-                            pass
+                    # Also delete metadata file
+                    from core.backup.metadata import metadata_filename
 
-                        console.print(f"[green]✓[/green] Deleted {candidate['name']}")
+                    metadata_path = file_path.parent / metadata_filename(file_path.name)
+                    try:
+                        metadata_path.unlink()
+                    except FileNotFoundError:
+                        pass
 
+                    console.print(f"[green]✓[/green] Deleted {candidate['name']}")
+
+                except FileNotFoundError:
+                    console.print(f"[yellow]⚠[/yellow] Already removed: {candidate['name']}")
                 except Exception as e:
                     console.print(f"[red]✗[/red] Failed to delete {candidate['name']}: {e}")
 

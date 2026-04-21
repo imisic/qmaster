@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+
 if TYPE_CHECKING:
     from core.config_manager import ConfigManager
 
@@ -56,6 +57,8 @@ class RetentionManager:
         """
         tiers = custom_tiers or self.default_tiers
 
+        from core.backup.metadata import metadata_filename
+
         # Get backup directory
         if item_type == "project":
             backup_dir = self.storage_path / "projects" / item_name
@@ -89,19 +92,17 @@ class RetentionManager:
                         backup_path.unlink()
 
                         # Also delete metadata
-                        metadata_path = backup_path.parent / backup_path.name.replace(".tar.gz", ".json").replace(
-                            ".sql.gz", ".json"
-                        )
+                        metadata_path = backup_path.parent / metadata_filename(backup_path.name)
                         try:
                             metadata_path.unlink()
                         except FileNotFoundError:
                             pass
 
                         deleted.append(backup["name"])
-                        self.logger.info(f"Deleted: {backup['name']} (tier: {backup.get('tier', 'none')})")
+                        self.logger.info("Deleted: %s (tier: %s)", backup['name'], backup.get('tier', 'none'))
 
                 except Exception as e:
-                    self.logger.error(f"Failed to delete {backup['name']}: {e}")
+                    self.logger.error("Failed to delete %s: %s", backup['name'], e)
 
         # Generate report
         report = {
@@ -133,24 +134,27 @@ class RetentionManager:
 
     def _get_backups_with_metadata(self, backup_dir: Path, pattern: str) -> list[dict[str, Any]]:
         """Get all backups with their metadata"""
+        from core.backup.metadata import metadata_filename
+
         backups = []
 
         for backup_file in backup_dir.glob(pattern):
             if backup_file.is_symlink():
                 continue
 
+            st = backup_file.stat()
             backup_info = {
                 "path": str(backup_file),
                 "name": backup_file.name,
-                "size": backup_file.stat().st_size,
-                "mtime": datetime.fromtimestamp(backup_file.stat().st_mtime),
+                "size": st.st_size,
+                "mtime": datetime.fromtimestamp(st.st_mtime),
                 "tagged": False,
                 "importance": "normal",
                 "tags": [],
             }
 
             # Try to get actual timestamp from metadata
-            metadata_file = backup_dir / backup_file.name.replace(".tar.gz", ".json").replace(".sql.gz", ".json")
+            metadata_file = backup_dir / metadata_filename(backup_file.name)
             if metadata_file.exists():
                 try:
                     with open(metadata_file) as f:

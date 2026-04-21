@@ -17,6 +17,7 @@ from ..config_manager import ConfigManager
 
 # Import constants from the package
 from .constants import DEFAULT_PROJECT_RETENTION_DAYS, ESTIMATED_COMPRESSION_RATIO, WHITELISTED_DOTFILES
+from .metadata import _atomic_json_write, metadata_filename
 
 
 class ProjectBackupMixin:
@@ -85,11 +86,12 @@ class ProjectBackupMixin:
         space_ok, space_msg = self._check_disk_space(local_backup_dir, estimated_compressed_size)
 
         if not space_ok:
-            self.logger.error(f"Disk space check failed for project '{project_name}': {space_msg}")
+            self.logger.error("Disk space check failed for project '%s': %s", project_name, space_msg)
             return False, space_msg
 
-        self.logger.debug(f"Disk space check passed: {space_msg}")
+        self.logger.debug("Disk space check passed: %s", space_msg)
 
+        local_backup_path = None
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_name = f"{project_name}_{timestamp}.tar.gz"
@@ -118,17 +120,17 @@ class ProjectBackupMixin:
                 else:
                     # No full backup exists, force full backup
                     incremental = False
-                    self.logger.info(f"No full backup found for '{project_name}', performing full backup")
+                    self.logger.info("No full backup found for '%s', performing full backup", project_name)
 
             # Determine backup type and filename
             if incremental and last_full_backup:
                 backup_type = "incremental"
                 backup_name = f"{project_name}_{timestamp}_incr.tar.gz"
-                self.logger.info(f"Starting incremental backup of project '{project_name}'")
+                self.logger.info("Starting incremental backup of project '%s'", project_name)
             else:
                 backup_type = "full"
                 backup_name = f"{project_name}_{timestamp}_full.tar.gz"
-                self.logger.info(f"Starting full backup of project '{project_name}'")
+                self.logger.info("Starting full backup of project '%s'", project_name)
 
             # Update local backup path with the correct name
             local_backup_path = local_backup_dir / backup_name
@@ -219,7 +221,7 @@ class ProjectBackupMixin:
                 tar.add(project_path, arcname=project_name, filter=filter_func)
 
                 if incremental:
-                    self.logger.info(f"Incremental backup: {files_added} files added, {files_skipped} files unchanged")
+                    self.logger.info("Incremental backup: %s files added, %s files unchanged", files_added, files_skipped)
 
             # Save snapshot for next incremental backup
             if backup_type == "full" or (incremental and new_snapshot):
@@ -249,14 +251,12 @@ class ProjectBackupMixin:
                                             "mode": stat.st_mode,
                                         }
                                     except (OSError, PermissionError) as stat_err:
-                                        self.logger.warning(f"Could not stat {file_path}: {stat_err}")
-
-                    from .metadata import _atomic_json_write
+                                        self.logger.warning("Could not stat %s: %s", file_path, stat_err)
 
                     _atomic_json_write(snapshot_file, new_snapshot)
-                    self.logger.debug(f"Saved snapshot with {len(new_snapshot)} files")
+                    self.logger.debug("Saved snapshot with %s files", len(new_snapshot))
                 except (OSError, json.JSONDecodeError, TypeError) as e:
-                    self.logger.warning(f"Failed to save snapshot: {e}")
+                    self.logger.warning("Failed to save snapshot: %s", e)
 
             # Finalize: permissions, metadata, sync, symlink, retention
             metadata_extra = {
@@ -274,7 +274,7 @@ class ProjectBackupMixin:
                 local_backup_path, backup_name, project_name, "project", description,
                 f"projects/{project_name}", "latest.tar.gz", retention_days, metadata_extra,
             )
-            self.logger.info(f"Successfully backed up '{project_name}' ({size_mb:.2f} MB)")
+            self.logger.info("Successfully backed up '%s' (%s MB)", project_name, size_mb)
 
             if self.notifier:
                 self.notifier.notify_backup_success(project_name, "project", size_mb)
@@ -283,17 +283,17 @@ class ProjectBackupMixin:
 
         except Exception as e:
             error_msg = str(e)
-            self.logger.error(f"Failed to backup project '{project_name}': {error_msg}")
+            self.logger.error("Failed to backup project '%s': %s", project_name, error_msg)
 
             # Clean up partial archive on failure
-            try:
-                if "local_backup_path" in locals():
+            if local_backup_path is not None:
+                try:
                     local_backup_path.unlink()
-                    self.logger.info(f"Cleaned up partial archive: {local_backup_path.name}")
-            except (FileNotFoundError, NameError):
-                pass
-            except OSError as cleanup_err:
-                self.logger.warning(f"Could not remove partial archive: {cleanup_err}")
+                    self.logger.info("Cleaned up partial archive: %s", local_backup_path.name)
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_err:
+                    self.logger.warning("Could not remove partial archive: %s", cleanup_err)
 
             # Send failure notification
             if self.notifier:
@@ -362,12 +362,13 @@ class ProjectBackupMixin:
         space_ok, space_msg = self._check_disk_space(local_backup_dir, estimated_compressed_size)
 
         if not space_ok:
-            self.logger.error(f"Disk space check failed for complete backup '{project_name}': {space_msg}")
+            self.logger.error("Disk space check failed for complete backup '%s': %s", project_name, space_msg)
             return False, space_msg
 
+        local_backup_path = None
         try:
             local_backup_path = local_backup_dir / backup_name
-            self.logger.info(f"Starting complete backup of project '{project_name}' (including all configs)")
+            self.logger.info("Starting complete backup of project '%s' (including all configs)", project_name)
 
             # Compile archive exclusion patterns
             exclude_regexes = []
@@ -402,7 +403,7 @@ class ProjectBackupMixin:
                 f"projects/{project_name}", "latest_complete.tar.gz", retention_days,
                 {"backup_type": "complete", "includes_hidden": True, "includes_git": True},
             )
-            self.logger.info(f"Successfully created complete backup of '{project_name}' ({size_mb:.2f} MB)")
+            self.logger.info("Successfully created complete backup of '%s' (%s MB)", project_name, size_mb)
 
             if self.notifier:
                 self.notifier.notify_backup_success(project_name, "complete", size_mb)
@@ -411,17 +412,17 @@ class ProjectBackupMixin:
 
         except Exception as e:
             error_msg = str(e)
-            self.logger.error(f"Failed to create complete backup of '{project_name}': {error_msg}")
+            self.logger.error("Failed to create complete backup of '%s': %s", project_name, error_msg)
 
             # Clean up partial archive
-            try:
-                if "local_backup_path" in locals():
+            if local_backup_path is not None:
+                try:
                     local_backup_path.unlink()
-                    self.logger.info(f"Cleaned up partial archive: {local_backup_path.name}")
-            except (FileNotFoundError, NameError):
-                pass
-            except OSError as cleanup_err:
-                self.logger.warning(f"Could not remove partial archive: {cleanup_err}")
+                    self.logger.info("Cleaned up partial archive: %s", local_backup_path.name)
+                except FileNotFoundError:
+                    pass
+                except OSError as cleanup_err:
+                    self.logger.warning("Could not remove partial archive: %s", cleanup_err)
 
             if self.notifier:
                 self.notifier.notify_backup_failure(project_name, "complete", error_msg)
@@ -458,7 +459,7 @@ class ProjectBackupMixin:
                             pass
 
         except Exception as e:
-            self.logger.warning(f"Error estimating complete backup size: {e}")
+            self.logger.warning("Error estimating complete backup size: %s", e)
 
         return total_size
 
@@ -481,7 +482,7 @@ class ProjectBackupMixin:
                 )
         else:
             max_workers = self.config.get_setting("system.max_parallel_backups", 4)
-            self.logger.info(f"Starting parallel complete backup of {len(project_names)} projects")
+            self.logger.info("Starting parallel complete backup of %s projects", len(project_names))
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_project = {
@@ -496,7 +497,7 @@ class ProjectBackupMixin:
                     try:
                         results[project_name] = future.result()
                     except Exception as e:
-                        self.logger.error(f"Complete backup failed for '{project_name}': {e}")
+                        self.logger.error("Complete backup failed for '%s': %s", project_name, e)
                         results[project_name] = (False, f"Complete backup failed: {e!s}")
 
         return results
@@ -523,7 +524,7 @@ class ProjectBackupMixin:
         else:
             # Parallel execution
             max_workers = self.config.get_setting("system.max_parallel_backups", 4)
-            self.logger.info(f"Starting parallel backup of {len(project_names)} projects with {max_workers} workers")
+            self.logger.info("Starting parallel backup of %s projects with %s workers", len(project_names), max_workers)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all backup tasks
@@ -540,7 +541,7 @@ class ProjectBackupMixin:
                     try:
                         results[project_name] = future.result()
                     except Exception as e:
-                        self.logger.error(f"Parallel backup failed for '{project_name}': {e}", exc_info=True)
+                        self.logger.error("Parallel backup failed for '%s': %s", project_name, e, exc_info=True)
                         results[project_name] = (False, f"Backup failed: {e!s}")
 
         return results
@@ -569,7 +570,7 @@ class ProjectBackupMixin:
             # Verify backup integrity before restoring
             verify_ok, verify_msg = self.verify_backup("project", project_name, backup_file)
             if not verify_ok:
-                self.logger.warning(f"Backup verification failed: {verify_msg}")
+                self.logger.warning("Backup verification failed: %s", verify_msg)
                 return False, f"Restore aborted - backup verification failed: {verify_msg}"
 
             # Create restore directory if it doesn't exist
@@ -581,17 +582,17 @@ class ProjectBackupMixin:
                     restore_path.parent / f"{restore_path.name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 )
                 shutil.move(str(restore_path), str(backup_existing))
-                self.logger.info(f"Existing directory moved to: {backup_existing}")
+                self.logger.info("Existing directory moved to: %s", backup_existing)
 
             # Extract backup (with path traversal protection)
             with tarfile.open(backup_path, "r:gz") as tar:
                 self._safe_extractall(tar, str(restore_path.parent))
 
-            self.logger.info(f"Successfully restored '{project_name}' from {backup_file}")
+            self.logger.info("Successfully restored '%s' from %s", project_name, backup_file)
             return True, f"Project restored successfully to {restore_path}"
 
         except Exception as e:
-            self.logger.error(f"Failed to restore project '{project_name}': {e!s}")
+            self.logger.error("Failed to restore project '%s': %s", project_name, e)
             return False, f"Restore failed: {e!s}"
 
     def quick_snapshot(
@@ -626,16 +627,16 @@ class ProjectBackupMixin:
             git_msg = message or f"Snapshot - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             git_success, git_result = self.git_manager.create_savepoint(str(project_path), git_msg)
             results["git_savepoint"] = (git_success, git_result)
-            self.logger.info(f"Git savepoint: {git_result}")
+            self.logger.info("Git savepoint: %s", git_result)
         else:
             results["git_savepoint"] = (False, "Not a Git repository (skipped)")
-            self.logger.info(f"Project '{project_name}' is not a Git repository, skipping Git savepoint")
+            self.logger.info("Project '%s' is not a Git repository, skipping Git savepoint", project_name)
 
         # Step 2: Project backup
         backup_description = message or f"Quick snapshot - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         backup_success, backup_result = self.backup_project(project_name, backup_description)
         results["project_backup"] = (backup_success, backup_result)
-        self.logger.info(f"Project backup: {backup_result}")
+        self.logger.info("Project backup: %s", backup_result)
 
         # Step 3: Database backups (if configured and requested)
         if backup_databases:
@@ -647,12 +648,12 @@ class ProjectBackupMixin:
                 for db_name in associated_dbs:
                     db_success, db_result = self.backup_database(db_name, backup_description)
                     db_results[db_name] = (db_success, db_result)
-                    self.logger.info(f"Database '{db_name}' backup: {db_result}")
+                    self.logger.info("Database '%s' backup: %s", db_name, db_result)
 
                 results["database_backups"] = db_results
             else:
                 results["database_backups"] = (False, "No databases configured for this project")
-                self.logger.info(f"No databases configured for project '{project_name}'")
+                self.logger.info("No databases configured for project '%s'", project_name)
 
         # Create summary
         success_count = sum(1 for k, v in results.items() if k != "database_backups" and isinstance(v, tuple) and v[0])
@@ -696,7 +697,7 @@ class ProjectBackupMixin:
 
         backup_path = backup_dir / backup_file
         if not backup_path.exists():
-            self.logger.error(f"Backup file not found: {backup_file}")
+            self.logger.error("Backup file not found: %s", backup_file)
             return []
 
         files = []
@@ -720,7 +721,7 @@ class ProjectBackupMixin:
                     )
 
         except Exception as e:
-            self.logger.error(f"Failed to list backup contents: {e}")
+            self.logger.error("Failed to list backup contents: %s", e)
 
         return files
 
@@ -779,7 +780,7 @@ class ProjectBackupMixin:
 
             if is_incremental:
                 # Load metadata to find base backup
-                metadata_name = backup_file.replace(".tar.gz", ".json")
+                metadata_name = metadata_filename(backup_file)
                 metadata_path = backup_dir / metadata_name
 
                 if metadata_path.exists():
@@ -817,27 +818,27 @@ class ProjectBackupMixin:
                                 # Validate extraction path (prevent path traversal)
                                 resolved = (Path(extract_path) / member.name).resolve()
                                 if not str(resolved).startswith(str(Path(extract_path).resolve()) + os.sep):
-                                    self.logger.warning(f"Skipping unsafe tar member: {member.name}")
+                                    self.logger.warning("Skipping unsafe tar member: %s", member.name)
                                     continue
                                 # Skip symlinks and hardlinks
                                 if member.issym() or member.islnk():
-                                    self.logger.warning(f"Skipping symlink/hardlink: {member.name}")
+                                    self.logger.warning("Skipping symlink/hardlink: %s", member.name)
                                     continue
                                 if sys.version_info >= (3, 12):
                                     tar.extract(member, extract_path, filter="data")
                                 else:
                                     tar.extract(member, extract_path)
                                 restored_files.append(member.name)
-                                self.logger.info(f"Restored: {member.name}")
+                                self.logger.info("Restored: %s", member.name)
 
             if not restored_files:
                 return False, f"No files matching patterns: {files_to_restore}"
 
-            self.logger.info(f"Selectively restored {len(restored_files)} files from {backup_file}")
+            self.logger.info("Selectively restored %s files from %s", len(restored_files), backup_file)
             return True, f"Restored {len(restored_files)} files successfully"
 
         except Exception as e:
-            self.logger.error(f"Failed to restore files: {e}", exc_info=True)
+            self.logger.error("Failed to restore files: %s", e, exc_info=True)
             return False, f"Restore failed: {e!s}"
 
     def preview_file(
@@ -903,5 +904,5 @@ class ProjectBackupMixin:
                     return False, f"File appears to be binary: {file_path}"
 
         except Exception as e:
-            self.logger.error(f"Failed to preview file: {e}")
+            self.logger.error("Failed to preview file: %s", e)
             return False, f"Preview failed: {e!s}"

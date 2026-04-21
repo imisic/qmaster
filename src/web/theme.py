@@ -24,6 +24,7 @@ def apply_theme() -> None:
     st.markdown(_get_css(), unsafe_allow_html=True)
 
 
+@st.cache_resource
 def _get_css() -> str:
     return f"""<style>
 /* ── Global ──────────────────────────────────────────── */

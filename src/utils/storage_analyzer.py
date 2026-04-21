@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from core.backup.metadata import metadata_filename
+
+
 if TYPE_CHECKING:
     from core.config_manager import ConfigManager
 
@@ -135,10 +138,13 @@ class StorageAnalyzer:
         newest = None
 
         for file in directory.rglob("*"):
+            if file.is_symlink():
+                continue
             if file.is_file() and not file.name.endswith(".json"):
                 try:
-                    size = file.stat().st_size
-                    mtime = datetime.fromtimestamp(file.stat().st_mtime)
+                    st = file.stat()
+                    size = st.st_size
+                    mtime = datetime.fromtimestamp(st.st_mtime)
 
                     total_size += size
                     count += 1
@@ -164,6 +170,7 @@ class StorageAnalyzer:
 
     def _analyze_item_directory(self, directory: Path, item_type: str) -> dict[str, Any]:
         """Analyze a specific project or database directory"""
+
         backups: list[dict[str, Any]] = []
         total_size = 0
         tagged_count = 0
@@ -177,15 +184,16 @@ class StorageAnalyzer:
                 if backup_file.is_symlink():
                     continue
 
+                st = backup_file.stat()
                 backup_info: dict[str, Any] = {
                     "name": backup_file.name,
-                    "size": backup_file.stat().st_size,
-                    "modified": datetime.fromtimestamp(backup_file.stat().st_mtime),
-                    "age_days": (datetime.now() - datetime.fromtimestamp(backup_file.stat().st_mtime)).days,
+                    "size": st.st_size,
+                    "modified": datetime.fromtimestamp(st.st_mtime),
+                    "age_days": (datetime.now() - datetime.fromtimestamp(st.st_mtime)).days,
                 }
 
                 # Check if backup is tagged
-                metadata_file = directory / backup_file.name.replace(".tar.gz", ".json").replace(".sql.gz", ".json")
+                metadata_file = directory / metadata_filename(backup_file.name)
                 if metadata_file.exists():
                     try:
                         with open(metadata_file) as f:
@@ -289,19 +297,20 @@ class StorageAnalyzer:
             if backup_file.is_symlink():
                 continue
 
+            st = backup_file.stat()
             backup_info: dict[str, Any] = {
                 "path": backup_file,
                 "name": backup_file.name,
                 "item_name": directory.name,
                 "item_type": item_type,
-                "size": backup_file.stat().st_size,
-                "modified": datetime.fromtimestamp(backup_file.stat().st_mtime),
-                "age_days": (datetime.now() - datetime.fromtimestamp(backup_file.stat().st_mtime)).days,
+                "size": st.st_size,
+                "modified": datetime.fromtimestamp(st.st_mtime),
+                "age_days": (datetime.now() - datetime.fromtimestamp(st.st_mtime)).days,
                 "tagged": False,
             }
 
             # Check metadata
-            metadata_file = directory / backup_file.name.replace(".tar.gz", ".json").replace(".sql.gz", ".json")
+            metadata_file = directory / metadata_filename(backup_file.name)
             if metadata_file.exists():
                 try:
                     with open(metadata_file) as f:

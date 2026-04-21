@@ -64,12 +64,13 @@ class GitBackupMixin:
         if skip_if_exists_today and self._has_backup_today(local_backup_dir, project_name):
             return True, "Skipped: git backup already exists for today"
 
+        local_backup_path = None
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_name = f"{project_name}_{timestamp}.bundle"
             local_backup_path = local_backup_dir / backup_name
 
-            self.logger.info(f"Starting git bundle backup of project '{project_name}'")
+            self.logger.info("Starting git bundle backup of project '%s'", project_name)
 
             # Get current branch info
             git_status = self.git_manager.get_repo_status(str(project_path))
@@ -82,7 +83,7 @@ class GitBackupMixin:
             )
 
             if result.returncode != 0:
-                self.logger.debug(f"git bundle create stderr: {result.stderr}")
+                self.logger.debug("git bundle create stderr: %s", result.stderr)
                 raise RuntimeError("git bundle create failed (check logs for details)")
 
             # Get commit count and latest commit info
@@ -121,13 +122,13 @@ class GitBackupMixin:
 
         except Exception as e:
             error_msg = str(e)
-            self.logger.error(f"Failed to backup git for '{project_name}': {error_msg}")
+            self.logger.error("Failed to backup git for '%s': %s", project_name, error_msg)
 
             # Clean up partial bundle
-            if "local_backup_path" in locals():
+            if local_backup_path is not None:
                 try:
                     local_backup_path.unlink()
-                    self.logger.info(f"Cleaned up partial bundle: {local_backup_path.name}")
+                    self.logger.info("Cleaned up partial bundle: %s", local_backup_path.name)
                 except (OSError, FileNotFoundError):
                     pass
 
@@ -159,7 +160,7 @@ class GitBackupMixin:
                 results[project_name] = self.backup_git(project_name, skip_if_exists_today=skip_if_exists_today)
         else:
             max_workers = self.config.get_setting("system.max_parallel_backups", 4)
-            self.logger.info(f"Starting parallel git backup of {len(git_projects)} projects")
+            self.logger.info("Starting parallel git backup of %s projects", len(git_projects))
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_project = {
@@ -172,7 +173,7 @@ class GitBackupMixin:
                     try:
                         results[project_name] = future.result()
                     except Exception as e:
-                        self.logger.error(f"Git backup failed for '{project_name}': {e}")
+                        self.logger.error("Git backup failed for '%s': %s", project_name, e)
                         results[project_name] = (False, f"Git backup failed: {e!s}")
 
         return results
@@ -214,16 +215,16 @@ class GitBackupMixin:
                         restore_path.parent / f"{restore_path.name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                     )
                     shutil.move(str(restore_path), str(backup_existing))
-                    self.logger.info(f"Existing directory moved to: {backup_existing}")
+                    self.logger.info("Existing directory moved to: %s", backup_existing)
 
                 cmd = ["git", "clone", str(backup_path), str(restore_path)]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=self._get_timeout("git_clone"))
 
                 if result.returncode != 0:
-                    self.logger.debug(f"git clone stderr: {result.stderr}")
+                    self.logger.debug("git clone stderr: %s", result.stderr)
                     raise RuntimeError("git clone failed (check logs for details)")
 
-                self.logger.info(f"Successfully cloned git backup to {restore_path}")
+                self.logger.info("Successfully cloned git backup to %s", restore_path)
                 return True, f"Git repository restored to {restore_path}"
 
             elif mode == "fetch":
@@ -242,7 +243,7 @@ class GitBackupMixin:
                 )
 
                 if verify_result.returncode != 0:
-                    self.logger.debug(f"git bundle verify stderr: {verify_result.stderr}")
+                    self.logger.debug("git bundle verify stderr: %s", verify_result.stderr)
                     return False, "Bundle verification failed (check logs for details)"
 
                 # Fetch from bundle
@@ -267,15 +268,15 @@ class GitBackupMixin:
                     )
 
                     if fetch_result.returncode != 0:
-                        self.logger.debug(f"git fetch stderr: {fetch_result.stderr}")
+                        self.logger.debug("git fetch stderr: %s", fetch_result.stderr)
                         raise RuntimeError("git fetch failed (check logs for details)")
 
-                self.logger.info(f"Successfully fetched git backup into {restore_path}")
+                self.logger.info("Successfully fetched git backup into %s", restore_path)
                 return True, f"Git history fetched into existing repository at {restore_path}"
 
             else:
                 return False, f"Invalid mode: {mode}. Use 'clone' or 'fetch'."
 
         except Exception as e:
-            self.logger.error(f"Failed to restore git backup: {e!s}")
+            self.logger.error("Failed to restore git backup: %s", e)
             return False, f"Git restore failed: {e!s}"

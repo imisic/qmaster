@@ -104,12 +104,13 @@ password="{password}"
         space_ok, space_msg = self._check_disk_space(local_backup_dir, min_required_space, safety_margin=1.1)
 
         if not space_ok:
-            self.logger.error(f"Disk space check failed for database '{db_name}': {space_msg}")
+            self.logger.error("Disk space check failed for database '%s': %s", db_name, space_msg)
             return False, space_msg
 
-        self.logger.debug(f"Disk space check passed: {space_msg}")
+        self.logger.debug("Disk space check passed: %s", space_msg)
 
         mysql_config_file = None
+        local_backup_path = None
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_name = f"{db_name}_{timestamp}.sql"
@@ -117,7 +118,7 @@ password="{password}"
             # Local backup path
             local_backup_path = local_backup_dir / backup_name
 
-            self.logger.info(f"Starting backup of database '{db_name}'")
+            self.logger.info("Starting backup of database '%s'", db_name)
 
             # Create secure MySQL configuration file
             mysql_config_file = self._create_mysql_config_file(db_config)
@@ -155,7 +156,7 @@ password="{password}"
                 )
 
             if result.returncode != 0:
-                self.logger.debug(f"mysqldump stderr: {result.stderr}")
+                self.logger.debug("mysqldump stderr: %s", result.stderr)
                 raise RuntimeError("mysqldump failed (check logs for details)")
 
             # Compress if requested
@@ -177,7 +178,7 @@ password="{password}"
                 local_backup_path, backup_name, db_name, "database", description,
                 f"databases/{db_name}", f"latest{latest_ext}", retention_days,
             )
-            self.logger.info(f"Successfully backed up database '{db_name}' ({size_mb:.2f} MB)")
+            self.logger.info("Successfully backed up database '%s' (%s MB)", db_name, size_mb)
 
             if self.notifier:
                 self.notifier.notify_backup_success(db_name, "database", size_mb)
@@ -186,14 +187,14 @@ password="{password}"
 
         except Exception as e:
             error_msg = str(e)
-            self.logger.error(f"Failed to backup database '{db_name}': {error_msg}", exc_info=True)
+            self.logger.error("Failed to backup database '%s': %s", db_name, error_msg, exc_info=True)
 
             # Clean up partial backup files on failure
-            if "local_backup_path" in locals():
+            if local_backup_path is not None:
                 for partial in [local_backup_path, Path(f"{local_backup_path}.gz")]:
                     try:
                         partial.unlink()
-                        self.logger.info(f"Cleaned up partial backup: {partial.name}")
+                        self.logger.info("Cleaned up partial backup: %s", partial.name)
                     except FileNotFoundError:
                         pass
                     except OSError:
@@ -212,7 +213,7 @@ password="{password}"
                     os.remove(mysql_config_file)
                     self.logger.debug("Removed temporary MySQL config file")
                 except Exception as e:
-                    self.logger.warning(f"Failed to remove temporary config file: {e}")
+                    self.logger.warning("Failed to remove temporary config file: %s", e)
 
     def backup_all_databases(
         self, parallel: bool = True, skip_if_exists_today: bool = False
@@ -233,7 +234,7 @@ password="{password}"
         else:
             # Parallel execution
             max_workers = self.config.get_setting("system.max_parallel_backups", 4)
-            self.logger.info(f"Starting parallel backup of {len(db_names)} databases with {max_workers} workers")
+            self.logger.info("Starting parallel backup of %s databases with %s workers", len(db_names), max_workers)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all backup tasks
@@ -248,7 +249,7 @@ password="{password}"
                     try:
                         results[db_name] = future.result()
                     except Exception as e:
-                        self.logger.error(f"Parallel backup failed for database '{db_name}': {e}", exc_info=True)
+                        self.logger.error("Parallel backup failed for database '%s': %s", db_name, e, exc_info=True)
                         results[db_name] = (False, f"Backup failed: {e!s}")
 
         return results
@@ -274,7 +275,7 @@ password="{password}"
         # Verify backup integrity before restoring
         verify_ok, verify_msg = self.verify_backup("database", db_name, backup_file)
         if not verify_ok:
-            self.logger.warning(f"Backup verification failed: {verify_msg}")
+            self.logger.warning("Backup verification failed: %s", verify_msg)
             return False, f"Restore aborted - backup verification failed: {verify_msg}"
 
         mysql_config_file = None
@@ -302,14 +303,14 @@ password="{password}"
                 )
 
             if result.returncode != 0:
-                self.logger.debug(f"mysql restore stderr: {result.stderr}")
+                self.logger.debug("mysql restore stderr: %s", result.stderr)
                 raise RuntimeError("mysql restore failed (check logs for details)")
 
-            self.logger.info(f"Successfully restored database '{db_name}' from {backup_file}")
+            self.logger.info("Successfully restored database '%s' from %s", db_name, backup_file)
             return True, "Database restored successfully"
 
         except Exception as e:
-            self.logger.error(f"Failed to restore database '{db_name}': {e!s}", exc_info=True)
+            self.logger.error("Failed to restore database '%s': %s", db_name, e, exc_info=True)
             return False, f"Restore failed: {e!s}"
 
         finally:
@@ -318,11 +319,11 @@ password="{password}"
                 try:
                     os.remove(sql_file)
                 except Exception as e:
-                    self.logger.warning(f"Failed to remove temporary SQL file: {e}")
+                    self.logger.warning("Failed to remove temporary SQL file: %s", e)
 
             if mysql_config_file and os.path.exists(mysql_config_file):
                 try:
                     os.remove(mysql_config_file)
                     self.logger.debug("Removed temporary MySQL config file")
                 except Exception as e:
-                    self.logger.warning(f"Failed to remove temporary config file: {e}")
+                    self.logger.warning("Failed to remove temporary config file: %s", e)

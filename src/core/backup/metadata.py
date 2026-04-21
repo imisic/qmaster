@@ -10,6 +10,14 @@ from pathlib import Path
 from typing import Any
 
 
+def metadata_filename(backup_name: str) -> str:
+    """Derive the metadata JSON filename from a backup filename."""
+    for ext in (".tar.gz", ".sql.gz", ".bundle"):
+        if backup_name.endswith(ext):
+            return backup_name[: -len(ext)] + ".json"
+    return Path(backup_name).stem + ".json"
+
+
 def _atomic_json_write(path: Path, data: dict) -> None:
     """Write JSON atomically: write to temp file, then rename."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
@@ -64,7 +72,7 @@ class MetadataMixin:
         extra_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Create metadata file for backup with checksum verification"""
-        metadata_name = backup_name.replace(".tar.gz", ".json").replace(".sql.gz", ".json").replace(".bundle", ".json")
+        metadata_name = metadata_filename(backup_name)
         metadata_path = backup_dir / metadata_name
 
         # Calculate checksum - MANDATORY for new backups
@@ -72,15 +80,15 @@ class MetadataMixin:
         if backup_file_path and backup_file_path.exists():
             try:
                 checksum = self._calculate_file_checksum(backup_file_path)
-                self.logger.info(f"Calculated SHA256 checksum for {backup_name}: {checksum[:8]}...")
+                self.logger.info("Calculated SHA256 checksum for %s: %s...", backup_name, checksum[:8])
             except Exception as e:
                 # This is now a critical error - we MUST have checksums for data integrity
-                self.logger.error(f"CRITICAL: Failed to calculate checksum for {backup_name}: {e}")
+                self.logger.error("CRITICAL: Failed to calculate checksum for %s: %s", backup_name, e)
                 raise RuntimeError(f"Failed to calculate backup checksum: {e}") from e
         else:
             # This should never happen with current code but let's be explicit
             if backup_file_path:
-                self.logger.error(f"CRITICAL: Backup file does not exist for checksum calculation: {backup_file_path}")
+                self.logger.error("CRITICAL: Backup file does not exist for checksum calculation: %s", backup_file_path)
                 raise FileNotFoundError(f"Cannot calculate checksum - backup file not found: {backup_file_path}")
 
         metadata: dict[str, Any] = {
@@ -107,9 +115,9 @@ class MetadataMixin:
 
         try:
             _atomic_json_write(metadata_path, metadata)
-            self.logger.info(f"Created metadata file with checksum: {metadata_name}")
+            self.logger.info("Created metadata file with checksum: %s", metadata_name)
         except Exception as e:
-            self.logger.error(f"Failed to create metadata file: {e!s}")
+            self.logger.error("Failed to create metadata file: %s", e)
             raise RuntimeError(f"Failed to create backup metadata: {e}") from e
 
     def verify_backup(self, item_type: str, item_name: str, backup_file: str) -> tuple[bool, str]:
@@ -153,21 +161,21 @@ class MetadataMixin:
                 return False, "No checksum found in metadata (backup created before verification feature)"
 
             # Calculate current checksum
-            self.logger.info(f"Verifying backup: {backup_file}")
+            self.logger.info("Verifying backup: %s", backup_file)
             current_checksum = self._calculate_file_checksum(backup_path)
 
             if current_checksum == stored_checksum:
-                self.logger.info(f"Verification successful for {backup_file}")
+                self.logger.info("Verification successful for %s", backup_file)
                 return True, "✓ Backup verified successfully (checksum matches)"
             else:
-                self.logger.error(f"Verification failed for {backup_file}: checksum mismatch")
+                self.logger.error("Verification failed for %s: checksum mismatch", backup_file)
                 return (
                     False,
                     f"✗ Backup corrupted! Checksum mismatch.\nExpected: {stored_checksum}\nActual: {current_checksum}",
                 )
 
         except Exception as e:
-            self.logger.error(f"Failed to verify backup {backup_file}: {e!s}", exc_info=True)
+            self.logger.error("Failed to verify backup %s: %s", backup_file, e, exc_info=True)
             return False, f"Verification failed: {e!s}"
 
     def verify_all_backups(self, item_type: str, item_name: str) -> dict[str, tuple[bool, str]]:
@@ -209,7 +217,7 @@ class MetadataMixin:
         if not backup_files:
             return {"error": (False, f"No backups found for {item_name}")}
 
-        self.logger.info(f"Verifying {len(backup_files)} backups for {item_name}...")
+        self.logger.info("Verifying %s backups for %s...", len(backup_files), item_name)
 
         for backup_file in backup_files:
             success, message = self.verify_backup(item_type, item_name, backup_file.name)
@@ -363,11 +371,11 @@ class MetadataMixin:
             if description:
                 tag_summary.append("description updated")
 
-            self.logger.info(f"Tagged {backup_file}: {', '.join(tag_summary)}")
+            self.logger.info("Tagged %s: %s", backup_file, ', '.join(tag_summary))
             return True, f"Successfully tagged {backup_file}: {', '.join(tag_summary)}"
 
         except Exception as e:
-            self.logger.error(f"Failed to save metadata for {backup_file}: {e}")
+            self.logger.error("Failed to save metadata for %s: %s", backup_file, e)
             return False, f"Failed to tag backup: {e}"
 
     def list_tagged_backups(self, item_type: str | None = None, item_name: str | None = None) -> list[dict[str, Any]]:
@@ -438,7 +446,7 @@ class MetadataMixin:
                         tagged_backups.append(metadata)
 
                 except Exception as e:
-                    self.logger.warning(f"Could not read metadata file {metadata_file}: {e}")
+                    self.logger.warning("Could not read metadata file %s: %s", metadata_file, e)
 
         # Sort by timestamp (newest first)
         tagged_backups.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
@@ -489,7 +497,7 @@ class MetadataMixin:
 
                     # Check if checksum is missing or None
                     if not metadata.get("checksum_sha256"):
-                        self.logger.info(f"Calculating checksum for {backup_file.name}...")
+                        self.logger.info("Calculating checksum for %s...", backup_file.name)
 
                         # Calculate checksum
                         checksum = self._calculate_file_checksum(backup_file)
@@ -502,15 +510,15 @@ class MetadataMixin:
                         # Save updated metadata
                         _atomic_json_write(metadata_path, metadata)
 
-                        self.logger.info(f"Added checksum to {metadata_name}: {checksum[:8]}...")
+                        self.logger.info("Added checksum to %s: %s...", metadata_name, checksum[:8])
                         updated += 1
 
                 except Exception as e:
-                    self.logger.error(f"Failed to update metadata for {backup_file.name}: {e}")
+                    self.logger.error("Failed to update metadata for %s: %s", backup_file.name, e)
             else:
                 # Create metadata if it doesn't exist
                 try:
-                    self.logger.info(f"Creating metadata for {backup_file.name}...")
+                    self.logger.info("Creating metadata for %s...", backup_file.name)
 
                     # Calculate checksum
                     checksum = self._calculate_file_checksum(backup_file)
@@ -533,10 +541,10 @@ class MetadataMixin:
                     # Save metadata
                     _atomic_json_write(metadata_path, metadata)
 
-                    self.logger.info(f"Created metadata for {backup_file.name} with checksum: {checksum[:8]}...")
+                    self.logger.info("Created metadata for %s with checksum: %s...", backup_file.name, checksum[:8])
                     updated += 1
 
                 except Exception as e:
-                    self.logger.error(f"Failed to create metadata for {backup_file.name}: {e}")
+                    self.logger.error("Failed to create metadata for %s: %s", backup_file.name, e)
 
         return updated, total

@@ -193,9 +193,9 @@ class BackupCleanupManager:
                             backup_file.unlink()
 
                             # Also delete metadata file if exists
-                            metadata_file = backup_file.parent / backup_file.name.replace(
-                                ".tar.gz", ".json"
-                            ).replace(".sql.gz", ".json")
+                            from core.backup.metadata import metadata_filename
+
+                            metadata_file = backup_file.parent / metadata_filename(backup_file.name)
                             try:
                                 metadata_file.unlink()
                             except FileNotFoundError:
